@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\shots.mjs\" order signup)",
+      "PowerShell(node $s laptop 1086 555 0)",
+      "PowerShell(node $s phone 390 844 1)",
+      "PowerShell(node $s wide 1366 650 0)",
+      "PowerShell(npx eslint src/pages/Signup.jsx server/index.js src/store.js 2>&1 | Select-String \"error|warning\" ; $l = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue; if\\($l\\){ Stop-Process -Id $l.OwningProcess -Force; \"stopped old server\" })",
+      "PowerShell(npx eslint src/pages/Signup.jsx server/index.js 2>&1 | Select-String \"error|warning\"; $l = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue; if\\($l\\){ Stop-Process -Id $l.OwningProcess -Force; \"stopped old server\" })",
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\fit.mjs\" taken 1086 555 0 \"name:hasan\")",
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\fit.mjs\" select 1086 555 0 Yamina)",
+      "PowerShell(npx eslint src/pages/Login.jsx src/store.js server/index.js 2>&1 | Select-String \" error|problem\"; $l = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue; if\\($l\\){ Stop-Process -Id $l.OwningProcess -Force; \"stopped old server\" })",
+      "PowerShell(npx eslint src/pages/Login.jsx src/pages/Signup.jsx src/store.js server/index.js 2>&1 | Select-String \" error|problem\"; npx vite build 2>&1 | Select-String \"built in|error\"; $l = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue; if\\($l\\){ Stop-Process -Id $l.OwningProcess -Force; \"stopped old server\" })",
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\profile.mjs\" edit 1086 555 0)",
+      "PowerShell($p='src\\\\pages\\\\Login.jsx'; $c=[IO.File]::ReadAllText\\($p\\); $old='<label className=\"block text-xs font-bold uppercase tracking-wider mb-1.5\" style={{ color: LGRAY }}>'; $new='<label className=\"block text-xs font-extrabold uppercase tracking-wide mb-1.5\" style={{ color: NAVY }}>'; $n=\\([regex]::Matches\\($c,[regex]::Escape\\($old\\)\\)\\).Count; [IO.File]::WriteAllText\\($p,$c.Replace\\($old,$new\\)\\); \"labels updated: $n\")",
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\shots.mjs\" labels login)",
+      "PowerShell(node \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\scratchpad\\\\profile.mjs\" small 1300 600 0)"
+    ]
+  }
+}

@@ -1,0 +1,230 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #F1F4F8;
+  color: #1B2E4B;
+}
+
+input, select, button { font-family: inherit; }
+
+/* iPhone Safari zooms in when a field's text is under 16px — keep it at 16px on phones */
+@media (max-width: 640px) {
+  input:not(.otp-digit), select, textarea { font-size: 16px !important; }
+}
+
+/* Fixed prefixes in signup fields ("NNG-", "+92"): same size as the typed digits */
+:root { --membership-pad: 66px; --phone-pad: 58px; }
+.membership-prefix, .field-prefix { font-size: 13px; }
+@media (max-width: 640px) {
+  :root { --membership-pad: 74px; --phone-pad: 64px; }
+  .membership-prefix, .field-prefix { font-size: 16px; }
+}
+
+/* Printing a report: only the page content, no site header / tab bar / footer / buttons */
+@media print {
+  body > #root header, body > #root footer, [data-print="hide"] { display: none !important; }
+  body { background: white !important; }
+  * { box-shadow: none !important; }
+}
+
+/* No sideways scrolling on small screens (clip, unlike hidden, keeps the sticky header working) */
+html, body { overflow-x: clip; }
+
+/* ══ Button hover effects ══
+   Buttons set their colors with inline styles, so hover colors need !important.
+   The hover tint is a background-image layered over whatever color the button has. */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --hover-ring: rgba(74, 111, 165, 0.45);
+}
+
+.btn, .btn-light, .btn-ghost {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  cursor: pointer;
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out),
+              background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+.btn:disabled, .btn-light:disabled, .btn-ghost:disabled { cursor: not-allowed; }
+.btn:not(:disabled):hover, .btn-light:not(:disabled):hover, .btn-ghost:not(:disabled):hover {
+  transform: translateY(-3px);
+}
+.btn:not(:disabled):active, .btn-light:not(:disabled):active, .btn-ghost:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.08s;
+}
+
+/* Light sweep across the main buttons */
+.btn::after, .btn-light::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -80%;
+  width: 50%; height: 100%;
+  transform: skewX(-20deg);
+  pointer-events: none;
+  transition: left 0.7s var(--ease-out);
+  z-index: -1;
+}
+.btn::after { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent); }
+.btn-light::after { background: linear-gradient(90deg, transparent, rgba(74, 111, 165, 0.18), transparent); }
+.btn:not(:disabled):hover::after, .btn-light:not(:disabled):hover::after { left: 130%; }
+
+/* Solid navy buttons: clearly brighter blue + deep shadow */
+.btn:not(:disabled):hover {
+  background-image: linear-gradient(rgba(96, 140, 205, 0.32), rgba(96, 140, 205, 0.32)) !important;
+  box-shadow: 0 12px 28px -6px rgba(27, 46, 75, 0.55), 0 0 0 3px rgba(74, 111, 165, 0.25) !important;
+}
+
+/* White buttons: pale-blue fill + shadow */
+.btn-light:not(:disabled):hover {
+  background-color: #E8EFF8 !important;
+  box-shadow: 0 12px 26px -6px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Outlined buttons on dark backgrounds: fill in, bright border, white text */
+.btn-ghost:not(:disabled):hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 10px 22px -8px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Arrow icons slide forward */
+.lucide-arrow-right, .lucide-chevron-right { transition: transform 0.25s var(--ease-out); }
+:is(.btn, .btn-light, .btn-ghost, a, button):not(:disabled):hover > .lucide-arrow-right { transform: translateX(5px); }
+
+/* Navigation links (header, mobile, admin sidebar) */
+.nav-link {
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.nav-link:hover {
+  background-color: rgba(255, 255, 255, 0.14) !important;
+  color: #FFFFFF !important;
+}
+/* Desktop header links: underline grows from the center */
+.nav-underline::after {
+  content: '';
+  position: absolute;
+  left: 16px; right: 16px; bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: #FFFFFF;
+  transform: scaleX(0);
+  transition: transform 0.3s var(--ease-out);
+}
+.nav-underline:hover::after { transform: scaleX(1); }
+
+/* Text-only buttons and links (Change, Remove, Resend, Sign in…) */
+.btn-text, .link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 2px;
+  transition: text-decoration-color 0.2s ease, opacity 0.2s ease;
+}
+.btn-text:hover, .link:hover { text-decoration-color: currentColor; opacity: 0.85; }
+
+/* Small icon-only buttons (admin table actions, toast close) */
+.btn-icon { cursor: pointer; transition: background-color 0.2s ease, transform 0.2s var(--ease-out), box-shadow 0.2s ease; }
+.btn-icon:hover {
+  background-color: rgba(27, 46, 75, 0.1) !important;
+  box-shadow: 0 0 0 3px rgba(27, 46, 75, 0.06);
+  transform: scale(1.15);
+}
+
+/* ── Default hover for every other button ──
+   :where() keeps specificity at zero so the classes above always win */
+:where(button):not(:disabled) {
+  cursor: pointer;
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out),
+              background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, filter 0.2s ease;
+}
+:where(button:not(:disabled):not(.absolute):not(.btn-text):not(.btn-icon)):hover {
+  transform: translateY(-2px);
+  background-image: linear-gradient(rgba(27, 46, 75, 0.06), rgba(27, 46, 75, 0.06)) !important;
+  box-shadow: 0 0 0 2px var(--hover-ring), 0 10px 20px -8px rgba(27, 46, 75, 0.4);
+}
+:where(button:not(:disabled):not(.absolute):not(.btn-text):not(.btn-icon)):active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.08s;
+}
+/* Icons sitting inside inputs (show/hide password, etc.): darken, don't move */
+:where(button.absolute:not(:disabled)):hover { filter: brightness(0.5); }
+
+/* Keyboard focus ring for accessibility */
+:is(button, a):focus-visible {
+  outline: 2px solid #4A6FA5;
+  outline-offset: 3px;
+}
+
+::-webkit-scrollbar { height: 4px; width: 4px; }
+::-webkit-scrollbar-track { background: #F1F4F8; }
+::-webkit-scrollbar-thumb { background: #C8D3E0; border-radius: 4px; }
+
+/* MapLibre popup polish */
+.maplibregl-popup-content {
+  border-radius: 14px !important;
+  padding: 12px 14px !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.18) !important;
+  border: 1px solid #DDE3EC !important;
+}
+.maplibregl-popup-tip { border-top-color: white !important; }
+.maplibregl-popup-close-button {
+  font-size: 18px !important;
+  color: #94A3B8 !important;
+  padding: 4px 8px !important;
+}
+.maplibregl-ctrl-group {
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15) !important;
+}
+
+/* Admin login: keep the dark field look when the browser autofills */
+.admin-input:-webkit-autofill,
+.admin-input:-webkit-autofill:hover,
+.admin-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #fff;
+  -webkit-box-shadow: 0 0 0 1000px #33476A inset;
+  caret-color: #fff;
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* Admin calendar: soft hover on day cells */
+.cal-day { transition: background-color 0.15s ease; }
+.cal-day:hover { background-color: #F8FAFF !important; }
+.cal-day:focus-visible { outline: 2px solid #4F46E5; outline-offset: -2px; }
+/* Admin calendar: thin scrollbar when a day has more times than fit */
+/* chips that do not fully fit wrap into a hidden 2nd column, so no half-cut chips */
+.cal-times { column-gap: 100%; }
+.cal-times::-webkit-scrollbar { display: none; }
+.cal-pop { animation: calPop 0.12s ease-out; }
+@keyframes calPop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Admin: bookings whose payment is still Processing */
+.row-processing td { color: #7C2D12; font-weight: 700; }
+.row-processing td input[type="checkbox"] { outline: 2px solid #EA580C; outline-offset: 1px; border-radius: 3px; }
+.badge-pulse { animation: badgePulse 1.6s ease-in-out infinite; }
+@keyframes badgePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.45); } 50% { box-shadow: 0 0 0 5px rgba(234, 88, 12, 0); } }
+@media (prefers-reduced-motion: reduce) { .badge-pulse { animation: none; } }
+
+/* My Bookings: square row action buttons */
+.row-act {
+  width: 26px; height: 26px; border-radius: 7px; border: 1.5px solid;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.row-act:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(15, 23, 42, 0.18); filter: brightness(0.97); }
+.row-act:focus-visible { outline: 2px solid #4A6FA5; outline-offset: 2px; }
+
+/* My Bookings summary bar: light dividers between sections */
+.summary-bar > div + div { border-left: 1px solid #C7D2FE; }
+@media (max-width: 1023px) { .summary-bar > div { border-top: 1px solid #C7D2FE; } .summary-bar > div:nth-child(-n+3) { border-top: none; } }

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:playtomic.com)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175)",
+      "Bash(xargs sed -i 's/Gym Khana/Gymkhana/g')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "PowerShell($ok=$false; for\\($i=0;$i -lt 20;$i++\\){ try { $r=Invoke-WebRequest http://localhost:5173 -UseBasicParsing -TimeoutSec 2; $ok=$true; break } catch { Start-Sleep 1 } }; if\\($ok\\){\"HTTP $\\($r.StatusCode\\)\"; $r.Content.Substring\\(0,[Math]::Min\\(600,$r.Content.Length\\)\\)}; Get-Content \"C:\\\\Users\\\\ADMIN\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--apptec-React-padal\\\\06eefe73-c83c-440c-8fb5-47a36882e94c\\\\tasks\\\\bp4in4es5.output\")",
+      "PowerShell($r=Invoke-WebRequest http://localhost:5173/src/main.jsx -UseBasicParsing; \"HTTP $\\($r.StatusCode\\), $\\($r.Content.Length\\) bytes\"; $a=Invoke-WebRequest http://localhost:5173/src/App.jsx -UseBasicParsing -ErrorAction SilentlyContinue; \"App.jsx HTTP $\\($a.StatusCode\\)\")",
+      "PowerShell(Get-ChildItem src -Recurse -File | ForEach-Object { $_.FullName.Replace\\(\\(Get-Location\\).Path+'\\\\',''\\) + \"  \\($\\($_.Length\\)\\)\" })",
+      "PowerShell(npx eslint src/store.js src/pages/Login.jsx src/pages/BookCourt.jsx src/pages/MyBookings.jsx)",
+      "PowerShell(npx vite build 2>&1)",
+      "PowerShell(foreach\\($c in 'mysql','mongod','mongosh','psql','sqlcmd'\\){ $x=Get-Command $c -ErrorAction SilentlyContinue; if\\($x\\){\"$c -> $\\($x.Source\\)\"} }; Get-Service | Where-Object { $_.Name -match 'mysql|mongo|postgres|mssql|maria' } | Select-Object Name,Status; Test-Path 'C:\\\\xampp')"
+    ]
+  }
+}
