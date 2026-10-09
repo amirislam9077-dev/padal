@@ -169,13 +169,13 @@ export default function AdminBookings() {
           <option value="cancelled">Cancelled</option>
         </select>
         {/* Starting date → end date (default: from 1 Jan 2026, no end date) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <label htmlFor="date-from" className="text-xs font-bold" style={{ color: LGRAY }}>From</label>
           <input id="date-from" type="date" value={dateFrom} max={dateTo || undefined}
-            onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
+            onChange={e => setDateFrom(e.target.value)} className="flex-1 min-w-0 sm:flex-none" style={inputStyle} />
           <label htmlFor="date-to" className="text-xs font-bold" style={{ color: LGRAY }}>To</label>
           <input id="date-to" type="date" value={dateTo} min={dateFrom || undefined}
-            onChange={e => setDateTo(e.target.value)} style={inputStyle} />
+            onChange={e => setDateTo(e.target.value)} className="flex-1 min-w-0 sm:flex-none" style={inputStyle} />
         </div>
         <button type="button" onClick={() => setSortAsc(s => !s)} title="Sort by date"
           className="inline-flex items-center gap-1.5 text-xs font-bold px-3 rounded-lg"

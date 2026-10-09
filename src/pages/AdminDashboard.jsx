@@ -128,12 +128,12 @@ export default function AdminDashboard() {
 
       {/* ── All upcoming bookings (every detail) ── */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${BORDER}` }}>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-3.5" style={{ borderBottom: `1px solid ${BORDER}` }}>
           <div>
-            <p className="font-black" style={{ color: NAVY }}>All Upcoming Bookings</p>
+            <p className="font-black whitespace-nowrap" style={{ color: NAVY }}>All Upcoming Bookings</p>
             <p className="hidden print:block text-xs" style={{ color: LGRAY }}>North Nazimabad Gymkhana Trust · printed {format(new Date(), 'd MMM yyyy, h:mm a')} · {upcoming.length} bookings</p>
           </div>
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2">
             {processingCount > 0 && (
               <span className="badge-pulse text-xs font-black px-2.5 py-1 rounded-full" style={{ background: '#EA580C', color: 'white' }}>{processingCount} processing — tick Payment Received to confirm</span>
             )}

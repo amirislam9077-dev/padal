@@ -156,8 +156,8 @@ export default function AdminCalendar() {
         <p className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>{loadError}</p>
       )}
 
-      <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[minmax(0,1fr)_290px]">
-        <div className="flex flex-col gap-3 min-h-0">
+      <div className="flex-1 min-h-0 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_290px]">
+        <div className="flex flex-col gap-3 min-h-0 min-w-0">
         {/* ── Time slots of the selected day (same look as the booking page) ── */}
         <div className="rounded-2xl px-4 py-3 shrink-0" style={{ background: `linear-gradient(135deg, ${NAVY} 0%, #2B4A75 100%)`, boxShadow: '0 6px 18px rgba(27,46,75,0.28)' }}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2">
@@ -182,7 +182,8 @@ export default function AdminCalendar() {
             </span>
           </div>
           {/* One row: group names on top, all opening hours below (columns share the width) */}
-          <div className="grid gap-x-1.5 gap-y-1" style={{ gridTemplateColumns: `repeat(${TIME_SLOTS.length}, minmax(0, 1fr))` }}>
+          <div className="slot-scroll overflow-x-auto pt-1.5 -mt-1.5">
+          <div className="grid gap-x-1.5 gap-y-1 min-w-[600px]" style={{ gridTemplateColumns: `repeat(${TIME_SLOTS.length}, minmax(0, 1fr))` }}>
             {SLOT_GROUPS.map((g, gi) => (
               <p key={g.label} className="text-[11px] font-semibold truncate" title={g.kids ? 'Kids time · 3pm–6pm free for under-18s' : g.label}
                 style={{ gridColumn: `span ${TIME_SLOTS.filter(h => h >= g.from && h < g.to).length}`, color: g.kids ? '#6EE7B7' : '#B8C7DC', paddingLeft: gi ? '6px' : 0 }}>
@@ -208,6 +209,7 @@ export default function AdminCalendar() {
                 </span>
               )
             }))}
+          </div>
           </div>
         </div>
 

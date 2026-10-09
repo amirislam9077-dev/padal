@@ -63,14 +63,14 @@ export function CourtCharts({ bookings, courts, today, range }) {
         return (
           <section key={c.id} className="bg-white rounded-2xl overflow-hidden" style={{ border: `1px solid ${LINE}`, boxShadow: '0 1px 3px rgba(15,23,42,0.05)' }}>
             {/* Court header + key figures */}
-            <div className="flex flex-wrap items-stretch" style={{ borderBottom: `1px solid ${LINE}` }}>
-              <div className="flex items-center gap-3 px-5 py-3 min-w-[150px]" style={{ borderLeft: `5px solid ${color}` }}>
+            <div className="flex flex-col sm:flex-row items-stretch" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <div className="flex items-center gap-3 px-5 py-3 sm:min-w-[150px]" style={{ borderLeft: `5px solid ${color}` }}>
                 <div>
                   <p className="text-lg font-black leading-tight" style={{ color: INK }}>{c.name}</p>
                   <p className="text-[11px]" style={{ color: MUTED }}>{dateSeries.length ? `${dateSeries[0].short} – ${dateSeries[dateSeries.length - 1].short}` : 'No data'}</p>
                 </div>
               </div>
-              <div className="flex-1 grid grid-cols-2 sm:grid-cols-5">
+              <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-5 kpi-grid">
                 {kpis.map(k => (
                   <div key={k.label} className="px-4 py-3 min-w-0" style={{ borderLeft: `1px solid ${LINE}` }} title={k.hint}>
                     <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: FAINT }}>
@@ -87,9 +87,9 @@ export function CourtCharts({ bookings, courts, today, range }) {
               </div>
             </div>
             {/* Charts */}
-            <div className="grid lg:grid-cols-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2">
               <MiniBars title="By date" data={byDate} color={color} scaleMax={dateMax} labelEvery={Math.max(1, Math.ceil(byDate.length / 9))} />
-              <div className="lg:border-l" style={{ borderColor: LINE }}>
+              <div className="min-w-0 border-t lg:border-t-0 lg:border-l" style={{ borderColor: LINE }}>
                 <MiniBars title="By time" data={byTime} color={color} scaleMax={timeMax} labelEvery={1} />
               </div>
             </div>
@@ -109,7 +109,7 @@ function MiniBars({ title, data, color, scaleMax, labelEvery }) {
   const H = 150
   const slots = n => `${n} ${n === 1 ? 'slot' : 'slots'}`
   return (
-    <div className="px-5 pt-4 pb-3">
+    <div className="px-4 sm:px-5 pt-4 pb-3 min-w-0">
       <div className="flex items-baseline justify-between mb-3">
         <p className="text-sm font-black" style={{ color: INK }}>{title}</p>
         <p className="text-[11px]" style={{ color: MUTED }}>slots booked</p>

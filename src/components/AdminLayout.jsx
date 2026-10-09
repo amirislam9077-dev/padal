@@ -23,7 +23,7 @@ export default function AdminLayout() {
 
   const navLinks = [
     { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/admin/bookings', label: 'All Bookings', icon: CalendarDays },
+    { to: '/admin/bookings', label: 'All Bookings', short: 'Bookings', icon: CalendarDays },
     { to: '/admin/calendar', label: 'Calendar Bookings', short: 'Calendar', icon: CalendarRange },
     { to: '/admin/scale', label: 'Scale', icon: BarChart3 },
     { to: '/admin/courts', label: 'Courts', icon: Grid2x2 },
@@ -102,10 +102,10 @@ export default function AdminLayout() {
               <LogOut size={13} /> Logout
             </button>
           </div>
-          <nav className="flex" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <nav className="admin-tabs flex overflow-x-auto" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             {navLinks.map(({ to, label, short, icon: Icon }) => (
               <Link key={to} to={to}
-                className="nav-link flex-1 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2.5 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap"
+                className="nav-link flex-1 shrink-0 min-w-[64px] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap"
                 style={pathname === to
                   ? { borderColor: 'white', color: 'white' }
                   : { borderColor: 'transparent', color: 'rgba(255,255,255,0.45)' }}>

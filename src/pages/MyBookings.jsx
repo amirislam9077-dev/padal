@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
+import LoginRequired from '../components/LoginRequired'
 import { formatSlotRange, getCurrentUser, mySlotsApi, cancelSlotApi, scoreSlotApi, creditApi } from '../store'
-import { CalendarX, X, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
+import { X, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 
@@ -222,23 +223,14 @@ export default function MyBookings() {
     URL.revokeObjectURL(a.href)
   }
 
-  if (!user) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <CalendarX size={44} className="mx-auto mb-3" style={{ color: '#DDE3EC' }} />
-        <p className="font-bold" style={{ color: NAVY }}>Please log in to see your bookings</p>
-        <Link to="/login?redirect=/my-bookings" className="btn inline-block mt-5 px-5 py-2.5 rounded-xl text-sm font-bold"
-          style={{ background: NAVY, color: 'white' }}>Log in</Link>
-      </div>
-    )
-  }
+  if (!user) return <LoginRequired message="Please log in to see your bookings" />
 
   return (
     <div className="max-w-6xl mx-auto px-4 pt-4 pb-6">
       {/* Title + actions */}
-      <div className="flex items-center gap-2 mb-3">
-        <h1 className="text-xl font-black" style={{ color: INK }}>My Bookings</h1>
-        <span className="mr-auto ml-2 text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h1 className="text-xl font-black whitespace-nowrap" style={{ color: INK }}>My Bookings</h1>
+        <span className="mr-auto sm:ml-2 text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
           title="Money from cancelled bookings. It's used automatically on your next booking."
           style={{ border: `1px solid ${INK}`, color: INK }}>
           Advance balance: Rs. {(credit ?? 0).toLocaleString()}
@@ -389,9 +381,10 @@ export default function MyBookings() {
             </div>
           ) : (
             <div className="bg-white rounded-xl" style={{ border: `1px solid ${LINE}` }}>
-              <div>
+              {/* below desktop width the table scrolls sideways inside its box */}
+              <div className="overflow-x-auto lg:overflow-visible">
               <table className="w-full text-sm" style={{ color: INK, borderCollapse: 'collapse', minWidth: '980px' }}>
-                <thead className="sticky z-10 bg-white print:static" style={{ top: 'var(--site-header-h, 76px)', boxShadow: `inset 0 -1.5px 0 ${INK}` }}>
+                <thead className="lg:sticky z-10 bg-white print:static" style={{ top: 'var(--site-header-h, 76px)', boxShadow: `inset 0 -1.5px 0 ${INK}` }}>
                   <tr>
                     {['Slot Ref', 'Date', 'Time', 'Court', 'Team 1', '', 'Team 2', 'Score', 'Won', 'Lost', 'Won − Lost', 'Result', 'Status'].map((h, i) => (
                       <th key={i} className={`text-[11px] font-black uppercase tracking-wider px-2 py-2 align-bottom ${h === 'Won' || h === 'Lost' || h === 'Won − Lost' ? 'text-center whitespace-nowrap' : 'text-left'}`} title={h === 'Won − Lost' ? 'Won − Lost: total games won minus total games lost' : undefined}>

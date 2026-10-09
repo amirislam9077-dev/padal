@@ -228,3 +228,16 @@ html, body { overflow-x: clip; }
 /* My Bookings summary bar: light dividers between sections */
 .summary-bar > div + div { border-left: 1px solid #C7D2FE; }
 @media (max-width: 1023px) { .summary-bar > div { border-top: 1px solid #C7D2FE; } .summary-bar > div:nth-child(-n+3) { border-top: none; } }
+
+/* Admin phone/tablet tab bar scrolls sideways without a visible scrollbar */
+.admin-tabs { scrollbar-width: none; }
+.admin-tabs::-webkit-scrollbar { display: none; }
+
+/* Admin calendar time-slot strip: thin scrollbar when it scrolls on phones */
+.slot-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.35) transparent; }
+/* Scale court card: on phones the key figures sit in a 2-column grid under the court name */
+@media (max-width: 639px) {
+  .kpi-grid { border-top: 1px solid #E5E9F0; }
+  .kpi-grid > div:nth-child(odd) { border-left: none !important; }
+  .kpi-grid > div:nth-child(n+3) { border-top: 1px solid #E5E9F0; }
+}

@@ -194,42 +194,42 @@ export function bookedSlotsApi(date, courtId) {
 // Save a new booking → { booking } or { error } (409 if the time was just taken)
 export function createSlotApi(booking) {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots', { method: 'POST', body: booking, headers }) : RELOGIN
+  return headers ? apiRequest('/api/slots', { method: 'POST', body: booking, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // Reserve the next unique slot reference no. for a new booking → { slotRef: 'SLOT-087' }
 export function newSlotRefApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots/new-ref', { headers }) : RELOGIN
+  return headers ? apiRequest('/api/slots/new-ref', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // Change an upcoming booking (same body as createSlotApi) → { booking, balance } or { error }
 export function updateSlotApi(id, booking) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}`, { method: 'PUT', body: booking, headers }) : RELOGIN
+  return headers ? apiRequest(`/api/slots/${id}`, { method: 'PUT', body: booking, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // Bookings I made or play in → { bookings }
 export function mySlotsApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots/mine', { headers }) : RELOGIN
+  return headers ? apiRequest('/api/slots/mine', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 export function cancelSlotApi(id) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}/cancel`, { method: 'POST', body: {}, headers }) : RELOGIN
+  return headers ? apiRequest(`/api/slots/${id}/cancel`, { method: 'POST', body: {}, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // Advance balance from cancelled bookings → { balance, history: [{ amount, reason, created_at }] }
 export function creditApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/credit', { headers }) : RELOGIN
+  return headers ? apiRequest('/api/credit', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // sets: [[6,4],[3,6]] or null to clear
 export function scoreSlotApi(id, sets) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}/score`, { method: 'POST', body: { sets }, headers }) : RELOGIN
+  return headers ? apiRequest(`/api/slots/${id}/score`, { method: 'POST', body: { sets }, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
 }
 
 // ── Admin ──

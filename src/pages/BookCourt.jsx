@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useSearchParams, useNavigate, Navigate, useLocation } from 'react-router-dom'
+import LoginRequired from '../components/LoginRequired'
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark } from 'lucide-react'
 import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
 import { format, addDays } from 'date-fns'
@@ -454,9 +455,7 @@ export default function BookCourt() {
   }
 
 
-  if (!user) {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />
-  }
+  if (!user) return <LoginRequired message="Please log in to book a padel court" />
 
   if (success) {
     return (

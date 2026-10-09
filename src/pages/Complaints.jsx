@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import LoginRequired from '../components/LoginRequired'
+import { getCurrentUser } from '../store'
 import { MessageSquare, Send, CheckCircle, AlertCircle, Clock, Lock } from 'lucide-react'
 
 const NAVY = '#1B2E4B'
@@ -56,6 +58,8 @@ export default function Complaints() {
     setSubmitted(true)
     setError('')
   }
+
+  if (!getCurrentUser()) return <LoginRequired message="Please log in to send a complaint" icon={MessageSquare} />
 
   if (submitted) {
     return (
