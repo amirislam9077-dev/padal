@@ -2,13 +2,14 @@
 import 'dotenv/config'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import mysql from 'mysql2/promise'
 import bcrypt from 'bcryptjs'
 import nodemailer from 'nodemailer'
 
-const DB_NAME = 'padalcreate'
+const DB_NAME = process.env.DB_NAME || 'padalcreate'
 const PORT = process.env.PORT || 5000
 
 const dbConfig = {
@@ -16,6 +17,16 @@ const dbConfig = {
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
+  // Online MySQL (Aiven, TiDB Cloud, Railway…) needs an encrypted connection: set DB_SSL=true.
+  // The provider's CA certificate (Aiven gives one): DB_SSL_CA_FILE = path to the .pem file
+  // (e.g. server/aiven-ca.pem), or DB_SSL_CA = the certificate text itself.
+  ...(process.env.DB_SSL === 'true' ? {
+    ssl: {
+      minVersion: 'TLSv1.2', rejectUnauthorized: true,
+      ...(process.env.DB_SSL_CA_FILE ? { ca: readFileSync(path.resolve(process.env.DB_SSL_CA_FILE), 'utf8') }
+        : process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n') } : {}),
+    },
+  } : {}),
 }
 
 const OTP_TTL_MINUTES = 10
@@ -73,7 +84,8 @@ function toE164(phone) {
 
 async function initDb() {
   const conn = await mysql.createConnection(dbConfig)
-  await conn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``)
+  try { await conn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``) }
+  catch (e) { console.warn(`Could not create database ${DB_NAME} (${e.code}) — using it as it is.`) }
   await conn.end()
 
   // dateStrings: DATE/TIME columns come back as plain strings ('2026-10-14', '19:00:00')
@@ -122,6 +134,32 @@ async function initDb() {
       KEY idx_events_date (date)
     )
   `)
+  // Bookings
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS slot (
+      id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      slot_ref VARCHAR(20) NULL,
+      court_id VARCHAR(20) NULL, court VARCHAR(50) NULL,
+      date DATE NULL, time TIME NULL, end_time TIME NULL, hour INT NULL,
+      player1 VARCHAR(100) NULL, player1_cm VARCHAR(20) NULL,
+      player2 VARCHAR(100) NULL, player2_cm VARCHAR(20) NULL,
+      player3 VARCHAR(100) NULL, player3_cm VARCHAR(20) NULL,
+      player4 VARCHAR(100) NULL, player4_cm VARCHAR(20) NULL,
+      team1 VARCHAR(100) NULL, team2 VARCHAR(100) NULL,
+      payment DECIMAL(10,2) NULL,
+      credit_used DECIMAL(10,2) NOT NULL DEFAULT 0, credit_refunded DECIMAL(10,2) NOT NULL DEFAULT 0,
+      payment_received TINYINT(1) NOT NULL DEFAULT 0, payment_received_at DATETIME NULL,
+      junior TINYINT(1) NOT NULL DEFAULT 0,
+      phone VARCHAR(20) NULL,
+      deposit_slip VARCHAR(255) NULL, slip_no VARCHAR(30) NULL, reference_no VARCHAR(50) NULL, bank_name VARCHAR(60) NULL,
+      score VARCHAR(20) NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
+      user_id INT UNSIGNED NULL,
+      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_slot_ref (slot_ref),
+      KEY idx_slot_lookup (date, court_id, status)
+    )
+  `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS otp_codes (
       email VARCHAR(150) PRIMARY KEY,
@@ -164,7 +202,16 @@ function parsePicture(dataUrl) {
   return { buffer, ext }
 }
 
-const pool = await initDb()
+let pool
+try {
+  pool = await initDb()
+} catch (err) {
+  console.error(`\n✖ Cannot connect to MySQL at ${dbConfig.host}:${dbConfig.port} (${err.code || err.message}).`)
+  if (['localhost', '127.0.0.1'].includes(dbConfig.host) && process.env.RENDER)
+    console.error('  On Render there is no MySQL on localhost. Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD (and DB_NAME, DB_SSL=true)\n  in Render → your service → Environment, pointing to an online MySQL database.')
+  else console.error('  Check DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME and DB_SSL.')
+  process.exit(1)
+}
 await fs.mkdir(SLIPS_DIR, { recursive: true })
 const app = express()
 app.use(express.json({ limit: '8mb' })) // fits a 5 MB deposit slip sent as base64
@@ -1042,6 +1089,12 @@ app.delete('/api/admin/slots/:id', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
   await pool.query('DELETE FROM slot WHERE id = ?', [req.params.id])
   res.json({ ok: true })
+})
+
+// Health check (Render → Settings → Health Check Path: /api/health)
+app.get('/api/health', async (req, res) => {
+  try { await pool.query('SELECT 1'); res.json({ ok: true, database: DB_NAME }) }
+  catch (err) { res.status(500).json({ ok: false, error: err.code || 'database error' }) }
 })
 
 app.listen(PORT, () => console.log(`API server on http://localhost:${PORT} (database: ${DB_NAME})`))
