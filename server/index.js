@@ -48,7 +48,7 @@ const mailer = nodemailer.createTransport({
   connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 20000,
 })
 const MAIL_FROM_NAME = 'NNG Trust Padel'
-const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER
+const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || process.env.ADMIN_EMAIL
 
 // Sends one email. Render's free plan blocks SMTP, so when BREVO_API_KEY is set the email goes
 // through Brevo's HTTPS API instead (brevo.com, free 300/day; MAIL_FROM must be a verified sender).
