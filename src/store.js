@@ -8,7 +8,7 @@ const defaultCourts = [
   { id: '2', name: 'Court 2', description: 'Indoor court with lighting', isActive: true },
 ]
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://padal-backend.vercel.app'
+const BACKEND_URL = 'https://padal-backend.vercel.app'
 
 export function getCourts() {
   const stored = localStorage.getItem(COURTS_KEY)
