@@ -282,7 +282,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-5 print:hidden">
+      <div className="grid grid-cols-1 gap-5 print:hidden">
         {/* Court Usage */}
         <div className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${BORDER}` }}>
           <p className="font-black mb-5" style={{ color: NAVY }}>Court Usage</p>
