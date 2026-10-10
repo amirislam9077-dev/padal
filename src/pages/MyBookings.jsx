@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import LoginRequired from '../components/LoginRequired'
-import { formatSlotRange, getCurrentUser, mySlotsApi, cancelSlotApi, scoreSlotApi, confirmScoreApi, creditApi } from '../store'
+import { formatSlotRange, getCurrentUser, mySlotsApi, scoreSlotApi, confirmScoreApi, creditApi } from '../store'
 import EmailNotice from '../components/EmailNotice'
 import { X, Check, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -106,19 +106,6 @@ export default function MyBookings() {
     creditApi().then(r => { if (!cancelled && !r.error) setCredit(r.balance) })
     return () => { cancelled = true }
   }, [user?.id, reload]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function cancel(id) {
-    const b = bookings.find(x => x.id === id)
-    const back = b?.refundable || 0
-    if (!confirm(back > 0
-      ? `Cancel this booking?\n\nRs. ${back.toLocaleString()} will be added to your advance balance and used on your next booking.`
-      : 'Cancel this booking?')) return
-    const r = await cancelSlotApi(id)
-    if (r.error) { alert(r.error); return }
-    setBookings(prev => prev.map(x => x.id === id ? r.booking : x))
-    if (r.balance != null) setCredit(r.balance)
-    if (r.creditAdded > 0) alert(`Booking cancelled. Rs. ${r.creditAdded.toLocaleString()} added to your advance balance (now Rs. ${r.balance.toLocaleString()}).`)
-  }
 
   async function saveScore(id, score) {
     const r = await scoreSlotApi(id, score ? score.sets : null)
@@ -451,7 +438,6 @@ export default function MyBookings() {
                 <tbody>
                   {pageRows.map(b => (
                     <BookingRow key={b.id} booking={b} today={today} isMe={isMe} myTeam={myTeam(b)}
-                      onCancel={tab !== 'past' ? cancel : null /* the row only offers Cancel for upcoming bookings */}
                       onScore={() => setScoring(b)} onConfirmScore={confirmScore}
                       isOwner={b.userId === user.id} />
                   ))}
@@ -565,9 +551,7 @@ function TeamCell({ players, isMe }) {
   )
 }
 
-function BookingRow({ booking, onCancel, onScore, onConfirmScore, today, isMe, myTeam, isOwner }) {
-  // Only the member who made the booking can cancel it (the server checks this too)
-  const canCancel = onCancel && isOwner && booking.status === 'confirmed' && booking.date >= today
+function BookingRow({ booking, onScore, onConfirmScore, today, isMe, myTeam, isOwner }) {
   const cancelled = booking.status === 'cancelled'
   const isPast = booking.date < today
   // Upcoming booking whose payment the club hasn't approved yet → highlighted row
@@ -695,12 +679,6 @@ function BookingRow({ booking, onCancel, onScore, onConfirmScore, today, isMe, m
               className="row-act" style={{ color: 'white', borderColor: INK, background: INK }}>
               <Pencil size={14} strokeWidth={2.25} />
             </Link>
-          )}
-          {canCancel && (
-            <button type="button" onClick={() => onCancel(booking.id)} title="Cancel booking" aria-label="Cancel booking"
-              className="row-act" style={{ color: '#DC2626', borderColor: '#FCA5A5', background: '#FEF2F2' }}>
-              <X size={15} strokeWidth={2.5} />
-            </button>
           )}
         </div>
       </td>
