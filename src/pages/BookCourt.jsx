@@ -354,7 +354,12 @@ export default function BookCourt() {
   }, [courtId, selectedDate, bookedVersion, editing])
 
   // Changing the court or date clears the chosen time
-  function chooseDate(key) { setSelectedDate(key); setSelectedTime(''); setBookedSlots([]) }
+  // On phones the time slots are below the calendar, so bring them into view after picking a date
+  const timeSection = useRef(null)
+  function chooseDate(key) {
+    setSelectedDate(key); setSelectedTime(''); setBookedSlots([])
+    if (window.innerWidth < 768) setTimeout(() => timeSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+  }
   function chooseCourt(id) { setCourtId(id); setSelectedTime(''); setBookedSlots([]) }
   const [saving, setSaving] = useState(false)
 
@@ -665,7 +670,7 @@ export default function BookCourt() {
 
           <div>
           {/* ── Time slots grouped by part of day ── */}
-          <div className="mb-4">
+          <div ref={timeSection} className="mb-4" style={{ scrollMarginTop: "140px" }}>
             <div className="flex flex-wrap items-center justify-between gap-x-3 mb-2">
               <span style={{ ...sectionLabel, marginBottom: 0 }}>
                 Select Time <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>· open {formatHourShort(TIME_SLOTS[0])} – {formatHourShort(TIME_SLOTS[TIME_SLOTS.length - 1] + 1)}</span>
@@ -686,13 +691,38 @@ export default function BookCourt() {
               </div>
             ) : (
               <div className="space-y-2">
+                {/* Day nearly full: only under-18 slots left, or nothing left at all */}
+                {(() => {
+                  const kidsHours = TIME_SLOTS.filter(h => h >= KIDS_FREE_FROM && h < KIDS_FREE_TO)
+                  const otherHours = TIME_SLOTS.filter(h => h < KIDS_FREE_FROM || h >= KIDS_FREE_TO)
+                  const kidsFree = kidsHours.filter(h => !isHourBooked(h))
+                  const otherFull = otherHours.length > 0 && otherHours.every(isHourBooked)
+                  if (!otherFull) return null
+                  return kidsFree.length ? (
+                    <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-sm font-semibold" role="status"
+                      style={{ background: '#FDE68A', border: '1.5px solid #F59E0B', borderLeft: '6px solid #D97706', color: '#78350F', boxShadow: '0 4px 14px rgba(217,119,6,0.25)' }}>
+                      <AlertCircle size={20} strokeWidth={2.5} className="shrink-0" style={{ color: "#B45309" }} />
+                      <span><b>Fully booked</b> — only under-18 slots left ({
+                        kidsFree.every((h, i) => !i || h === kidsFree[i - 1] + 1)
+                          ? formatSlotRange(kidsFree[0], kidsFree[kidsFree.length - 1] + 1) // one block, e.g. 3pm–6pm
+                          : kidsFree.map(h => formatSlotRange(h, h + 1)).join(', ')
+                      }).</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-sm font-semibold" role="status"
+                      style={{ background: '#FECACA', border: '1.5px solid #F87171', borderLeft: '6px solid #DC2626', color: '#7F1D1D', boxShadow: '0 4px 14px rgba(220,38,38,0.22)' }}>
+                      <AlertCircle size={20} strokeWidth={2.5} className="shrink-0" style={{ color: "#B91C1C" }} />
+                      <span><b>Fully booked</b> — please pick another date or court.</span>
+                    </div>
+                  )
+                })()}
                 {SLOT_GROUPS.map(g => (
                   <div key={g.label}>
                     <p className="text-[11px] font-semibold mb-1" style={{ color: g.kids ? '#047857' : LGRAY }}>
                       {g.label}
                       {g.kids && <span> · {formatHourShort(KIDS_FREE_FROM)}–{formatHourShort(KIDS_FREE_TO)} free for under-18s</span>}
                     </p>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-1.5">
                       {TIME_SLOTS.filter(h => h >= g.from && h < g.to).map(hour => {
                         const booked = isHourBooked(hour)
                         const start = parseInt(selectedTime)
@@ -709,7 +739,7 @@ export default function BookCourt() {
                         return (
                           <button key={hour} type="button" onClick={() => handleSlotClick(hour)}
                             title={booked ? `${formatSlotRange(hour, hour + 1)} · booked` : kidsFree ? `${formatSlotRange(hour, hour + 1)} · free for under-18 players` : formatSlotRange(hour, hour + 1)}
-                            className="relative h-8 px-1 rounded-lg text-xs font-semibold whitespace-nowrap"
+                            className="relative h-11 sm:h-8 px-1 rounded-lg text-sm sm:text-xs font-semibold whitespace-nowrap"
                             style={{ ...style, textDecoration: booked ? 'line-through' : 'none' }}>
                             {formatSlotRange(hour, hour + 1)}
                             {kidsFree && !booked && (
