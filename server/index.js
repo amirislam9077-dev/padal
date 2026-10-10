@@ -119,14 +119,17 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS padalcreate (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       full_name VARCHAR(150) NOT NULL,
+      username VARCHAR(30) NULL,                  -- "User ID", unique
       membership_no VARCHAR(20) NOT NULL, -- shared by family members
       email_address VARCHAR(255) NOT NULL,        -- may be shared by family members
       phone_number VARCHAR(20) NOT NULL,          -- may be shared by family members
+      date_of_birth DATE NULL,
       picture VARCHAR(255) NULL,
       password_hash VARCHAR(255) NOT NULL,
       created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_member_name (membership_no, full_name), -- a name only once per membership
-      KEY idx_email (email_address)
+      KEY idx_email (email_address),
+      UNIQUE KEY uniq_username (username)
     )
   `)
   // Advance balance: money from cancelled bookings, used on the next booking (+ added, − used)
@@ -194,6 +197,13 @@ async function initDb() {
   const have = new Set(cols.map(c => c.COLUMN_NAME))
   for (const [name, type] of Object.entries(SCORE_COLUMNS))
     if (!have.has(name)) await pool.query(`ALTER TABLE slot ADD COLUMN ${name} ${type}`)
+  // Signup: User ID (unique, NULL for accounts made before it existed) and date of birth
+  const [accCols] = await pool.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'padalcreate'")
+  const accHave = new Set(accCols.map(c => c.COLUMN_NAME))
+  if (!accHave.has('username'))
+    await pool.query('ALTER TABLE padalcreate ADD COLUMN username VARCHAR(30) NULL AFTER full_name, ADD UNIQUE KEY uniq_username (username)')
+  if (!accHave.has('date_of_birth'))
+    await pool.query('ALTER TABLE padalcreate ADD COLUMN date_of_birth DATE NULL AFTER phone_number')
   await pool.query(`
     CREATE TABLE IF NOT EXISTS otp_codes (
       email VARCHAR(150) PRIMARY KEY,
@@ -217,7 +227,7 @@ function tokenValid(id, token) {
 }
 
 function toSession(row) {
-  return { id: String(row.id), name: row.full_name, email: row.email_address, phone: row.phone_number, membershipNo: row.membership_no, picture: row.picture, token: signToken(row.id) }
+  return { id: String(row.id), name: row.full_name, username: row.username, dob: row.date_of_birth, email: row.email_address, phone: row.phone_number, membershipNo: row.membership_no, picture: row.picture, token: signToken(row.id) }
 }
 
 // Remove a picture file that belongs only to this account (e.g. /uploads/12-ab12cd34.png)
@@ -264,8 +274,22 @@ async function nameTaken(membershipNo, name) {
     : null
 }
 
-function validateSignup({ name, email, phone, membershipNo, password }) {
-  if (!name?.trim() || !email?.trim() || !phone?.trim() || !membershipNo?.trim() || !password) return 'Please fill in all required fields.'
+// User ID: 3–30 letters, numbers, dot or underscore (unique; the collation ignores upper/lower case)
+const USERNAME_RE = /^[A-Za-z0-9._]{3,30}$/
+const USERNAME_RULE = 'User ID must be 3–30 letters, numbers, dots or underscores (no spaces).'
+const USERNAME_TAKEN = 'This User ID is already taken. Please choose another one.'
+
+// "YYYY-MM-DD", a real date, not in the future and not before 1900
+function validDob(dob) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob || '')) return false
+  const d = new Date(dob + 'T00:00:00Z')
+  return !isNaN(d) && d.toISOString().slice(0, 10) === dob && dob >= '1900-01-01' && d <= new Date()
+}
+
+function validateSignup({ name, username, dob, email, phone, membershipNo, password }) {
+  if (!name?.trim() || !username?.trim() || !dob || !email?.trim() || !phone?.trim() || !membershipNo?.trim() || !password) return 'Please fill in all required fields.'
+  if (!USERNAME_RE.test(username.trim())) return USERNAME_RULE
+  if (!validDob(dob)) return 'Please enter a valid date of birth.'
   if (!/^NNG-\d{1,16}$/.test(membershipNo.trim())) return 'Membership number must be NNG- followed by numbers.'
   if (!/^\S+@\S+\.\S+$/.test(email.trim())) return 'Please enter a valid email address.'
   if (!/^\+\d{10,15}$/.test(toE164(phone))) return 'Please enter a valid phone number.'
@@ -283,6 +307,21 @@ app.get('/api/check-membership', async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not check membership number.' })
+  }
+})
+
+const usernameTaken = async username =>
+  (await pool.query('SELECT 1 FROM padalcreate WHERE username = ?', [username.trim()]))[0].length > 0
+
+// Live check from the signup form: is this User ID free?
+app.get('/api/check-username', async (req, res) => {
+  const username = String(req.query.username || '').trim()
+  if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_RULE })
+  try {
+    res.json({ taken: await usernameTaken(username) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not check User ID.' })
   }
 })
 
@@ -309,6 +348,7 @@ app.post('/api/send-otp', async (req, res) => {
   try {
     const taken = await nameTaken(body.membershipNo, body.name)
     if (taken) return res.status(409).json({ error: taken })
+    if (await usernameTaken(body.username)) return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
 
     const [recent] = await pool.query(
       'SELECT 1 FROM otp_codes WHERE email = ? AND sent_at > NOW() - INTERVAL ? SECOND', [email, OTP_RESEND_SECONDS])
@@ -336,7 +376,7 @@ app.post('/api/send-otp', async (req, res) => {
 
 app.post('/api/signup', async (req, res) => {
   const body = req.body || {}
-  const { name, phone, membershipNo, password, otp } = body
+  const { name, username, dob, phone, membershipNo, password, otp } = body
   const invalid = validateSignup(body)
   if (invalid) return res.status(400).json({ error: invalid })
   if (!/^\d{6}$/.test(otp || '')) return res.status(400).json({ error: 'Please enter all 6 digits.', otpError: true })
@@ -347,6 +387,7 @@ app.post('/api/signup', async (req, res) => {
   try {
     const taken = await nameTaken(membershipNo, name)
     if (taken) return res.status(409).json({ error: taken })
+    if (await usernameTaken(username)) return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
 
     const [codes] = await pool.query('SELECT * FROM otp_codes WHERE email = ? AND expires_at > NOW()', [email])
     const row = codes[0]
@@ -359,8 +400,8 @@ app.post('/api/signup', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10)
     const [result] = await pool.query(
-      'INSERT INTO padalcreate (full_name, membership_no, email_address, phone_number, password_hash) VALUES (?, ?, ?, ?, ?)',
-      [cleanName(name), membershipNo.trim(), email, toE164(phone), hash]
+      'INSERT INTO padalcreate (full_name, username, membership_no, email_address, phone_number, date_of_birth, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [cleanName(name), username.trim(), membershipNo.trim(), email, toE164(phone), dob, hash]
     )
     await pool.query('DELETE FROM otp_codes WHERE email = ?', [email])
     if (picture) {
@@ -372,7 +413,9 @@ app.post('/api/signup', async (req, res) => {
     res.status(201).json({ user: toSession(rows[0]) })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({ error: `${cleanName(name)} is already registered under ${membershipNo.trim()}. Please sign in instead.` })
+      return res.status(409).json(err.message.includes('uniq_username')
+        ? { error: USERNAME_TAKEN, usernameTaken: true }
+        : { error: `${cleanName(name)} is already registered under ${membershipNo.trim()}. Please sign in instead.` })
     console.error(err)
     res.status(500).json({ error: 'Could not create account. Please try again.' })
   }

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, Hash, ShieldCheck, RefreshCw, Camera, X } from 'lucide-react'
-import { sendOtpApi, signupApi, checkMembershipApi } from '../store'
+import { User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, Hash, ShieldCheck, RefreshCw, Camera, X, AtSign, Calendar } from 'lucide-react'
+import { sendOtpApi, signupApi, checkMembershipApi, checkUsernameApi } from '../store'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
@@ -9,6 +9,10 @@ const LGRAY = '#94A3B8'
 const MEMBERSHIP_PREFIX = 'NNG-'
 const PHONE_PREFIX = '+92'
 const MAX_PICTURE_MB = 2
+const EMPTY_FORM = { name: '', username: '', dob: '', email: '', phone: '', membershipNo: '', password: '', confirm: '' }
+// User ID: 3–30 letters, numbers, dot or underscore (same rule as the server)
+const USERNAME_RE = /^[A-Za-z0-9._]{3,30}$/
+const localToday = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 
 const fieldStyle = {
   width: '100%', border: `1.5px solid ${BORDER}`, borderRadius: '8px',
@@ -166,7 +170,7 @@ function OTPScreen({ form, sentTo, onResend, onVerify, onBack }) {
 
 export default function Signup() {
   const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', email: '', phone: '', membershipNo: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ ...EMPTY_FORM })
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -178,11 +182,26 @@ export default function Signup() {
   // New membership number = start over: empty every other field
   function changeMembership(digits) {
     if (digits === form.membershipNo) return
-    setForm({ name: '', email: '', phone: '', membershipNo: digits, password: '', confirm: '' })
+    setForm({ ...EMPTY_FORM, membershipNo: digits })
     setPicture(null)
     setMembers([])
+    setUsernameTaken(false)
     setError('')
   }
+
+  // User ID must be unique: check the database 500ms after typing stops
+  const [usernameTaken, setUsernameTaken] = useState(false)
+  const usernameValid = USERNAME_RE.test(form.username.trim())
+  useEffect(() => {
+    const username = form.username.trim()
+    if (!USERNAME_RE.test(username)) return
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const result = await checkUsernameApi(username)
+      if (!cancelled) setUsernameTaken(result.taken === true)
+    }, 500)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [form.username])
 
   // A name may only be registered once per membership number (ignores case and extra spaces)
   const normName = s => s.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -214,7 +233,7 @@ export default function Signup() {
   }, [form.membershipNo])
 
   const payload = {
-    name: form.name.trim(), email: form.email.trim(),
+    name: form.name.trim(), username: form.username.trim(), dob: form.dob, email: form.email.trim(),
     phone: PHONE_PREFIX + form.phone, membershipNo: MEMBERSHIP_PREFIX + form.membershipNo,
     password: form.password,
   }
@@ -226,8 +245,17 @@ export default function Signup() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.membershipNo || !form.password) {
+    if (!form.name.trim() || !form.username.trim() || !form.dob || !form.email.trim() || !form.phone.trim() || !form.membershipNo || !form.password) {
       setError('Please fill in all required fields.'); return
+    }
+    if (!usernameValid) {
+      setError('User ID must be 3–30 letters, numbers, dots or underscores (no spaces).'); return
+    }
+    if (usernameTaken) {
+      setError('This User ID is already taken. Please choose another one.'); return
+    }
+    if (form.dob > localToday() || form.dob < '1900-01-01') {
+      setError('Please enter a valid date of birth.'); return
     }
     if (form.phone.length !== 10) {
       setError('Please enter a 10-digit mobile number after +92, e.g. 300 1234567.'); return
@@ -254,6 +282,7 @@ export default function Signup() {
     const result = await signupApi({ ...payload, picture, otp: code })
     if (result.error) {
       if (result.otpError) return result.error
+      if (result.usernameTaken) setUsernameTaken(true)
       setShowOTP(false); setError(result.error); return null
     }
     navigate('/')
@@ -405,7 +434,35 @@ export default function Signup() {
               </div>
             )}
 
-            {/* Row 2: Email + Phone */}
+            {/* Row 2: User ID + Date of birth */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label style={labelStyle}>User ID *</label>
+                <div className="relative">
+                  <AtSign size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
+                  <input type="text" name="username" placeholder="e.g. ahmed.khan" maxLength={30} autoComplete="username"
+                    value={form.username}
+                    onChange={e => { setUsernameTaken(false); handleChange({ target: { name: 'username', value: e.target.value.replace(/\s/g, '') } }) }}
+                    style={{ ...fieldStyle, ...(usernameTaken && { borderColor: '#DC2626', background: '#FEF2F2' }) }} />
+                </div>
+                {usernameTaken ? (
+                  <p className="text-xs mt-1" style={{ color: '#DC2626' }}>This User ID is already taken.</p>
+                ) : form.username && !usernameValid && (
+                  <p className="text-xs mt-1" style={{ color: LGRAY }}>3–30 letters, numbers, dots or underscores.</p>
+                )}
+              </div>
+              <div>
+                <label style={labelStyle}>Date of Birth *</label>
+                <div className="relative">
+                  <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: LGRAY }} />
+                  <input type="date" name="dob" min="1900-01-01" max={localToday()}
+                    value={form.dob} onChange={handleChange} autoComplete="bday"
+                    style={{ ...fieldStyle, color: form.dob ? NAVY : LGRAY }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3: Email + Phone */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label style={labelStyle}>Email Address *</label>
@@ -430,7 +487,7 @@ export default function Signup() {
               </div>
             </div>
 
-            {/* Row 3: Password + Confirm */}
+            {/* Row 4: Password + Confirm */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label style={labelStyle}>Password *</label>

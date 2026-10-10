@@ -138,6 +138,15 @@ export async function checkMembershipApi(membershipNo) {
   }
 }
 
+export async function checkUsernameApi(username) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/check-username?username=${encodeURIComponent(username)}`)
+    return await res.json()
+  } catch {
+    return { error: 'Cannot reach the server.' }
+  }
+}
+
 export async function checkEmailApi(email) {
   try {
     const res = await fetch(`${BACKEND_URL}/api/check-email?email=${encodeURIComponent(email)}`)
