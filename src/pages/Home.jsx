@@ -193,20 +193,6 @@ export default function Home() {
               Karachi's premier padel destination. Book your court online instantly and experience world-class facilities.
             </p>
 
-            {/* Buttons */}
-            <div className="flex gap-3 flex-wrap">
-              <Link to="/book"
-                className="btn-light flex items-center gap-2 font-black px-7 py-3 rounded-xl text-sm tracking-wide shadow-xl"
-                style={{ background: '#FFFFFF', color: NAVY }}>
-                <Calendar size={16} /> PADEL COURT BOOKING <ArrowRight size={14} />
-              </Link>
-              <Link to="/my-bookings"
-                className="btn-ghost flex items-center gap-2 font-semibold px-7 py-3 rounded-xl text-sm"
-                style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: '1.5px solid rgba(255,255,255,0.2)' }}>
-                My Bookings
-              </Link>
-            </div>
-
             {/* Stats */}
             <div className="flex gap-8 mt-6 pt-4 flex-wrap sm:flex-nowrap sm:w-max"
               style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>

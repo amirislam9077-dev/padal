@@ -90,6 +90,7 @@ function SiteFooter() {
 
 // Round profile photo with a bright white ring + soft glow so it stands out on the dark header
 function Avatar({ user, size, online = false }) {
+  const [broken, setBroken] = useState(null) // the picture URL that failed to load
   const ring = {
     width: size, height: size,
     border: `${size >= 60 ? 3 : 2.5}px solid white`,
@@ -97,8 +98,9 @@ function Avatar({ user, size, online = false }) {
   }
   return (
     <span className="relative inline-block shrink-0" style={{ width: size, height: size }}>
-      {user.picture ? (
+      {user.picture && broken !== user.picture ? (
         <img src={user.picture} alt={user.name} className="rounded-full object-cover block"
+          onError={() => setBroken(user.picture)}
           style={{ ...ring, background: 'white' }} />
       ) : (
         <span className="rounded-full flex items-center justify-center font-black"
@@ -244,10 +246,10 @@ export default function Layout() {
   }
 
   const navLinks = [
-    { to: '/', label: 'Home', icon: Home },
-    { to: '/book', label: 'Padel Booking', icon: Calendar },
-    { to: '/my-bookings', label: 'My Bookings', icon: BookOpen },
-    { to: '/complaints', label: 'Complaints', icon: MessageSquare },
+    { to: '/', label: 'Home', short: 'Home', icon: Home },
+    { to: '/book', label: 'Padel Booking', short: 'Book', icon: Calendar },
+    { to: '/my-bookings', label: 'My Bookings', short: 'Bookings', icon: BookOpen },
+    { to: '/complaints', label: 'Complaints', short: 'Complaints', icon: MessageSquare, phoneHidden: true }, // not in the phone tab bar (footer still links it)
   ]
 
   return (
@@ -310,13 +312,15 @@ export default function Layout() {
 
         {/* Phone / tablet tab bar */}
         <nav className="lg:hidden flex border-t" style={{ borderColor: 'rgba(255,255,255,0.06)', background: NAVY2 }}>
-          {navLinks.map(({ to, label, icon: Icon }) => (
-            <Link key={to} to={to}
-              className="nav-link flex-1 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold border-b-2 whitespace-nowrap"
+          {navLinks.map(({ to, label, short, icon: Icon, phoneHidden }) => (
+            <Link key={to} to={to} title={label}
+              className={`nav-link flex-1 min-w-0 ${phoneHidden ? "hidden sm:flex" : "flex"} flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 py-2.5 sm:py-3 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap overflow-hidden`}
               style={pathname === to
                 ? { borderColor: 'white', color: 'white' }
                 : { borderColor: 'transparent', color: 'rgba(255,255,255,0.4)' }}>
-              <Icon size={16} />{label}
+              <Icon size={16} className="shrink-0" />
+              <span className="sm:hidden truncate max-w-full">{short}</span>
+              <span className="hidden sm:inline">{label}</span>
             </Link>
           ))}
         </nav>

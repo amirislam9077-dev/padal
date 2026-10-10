@@ -602,11 +602,12 @@ export default function BookCourt() {
             <div style={stepNumStyle(true)}>1</div>
             <span className="font-black text-lg" style={{ color: NAVY }}>Select date and time</span>
             {/* Slot reference no.: given by the server when the booking is saved (kept when editing) */}
-            <div className="flex items-center gap-2 ml-auto" title="Unique slot reference no. — generated automatically for this booking">
-              <label htmlFor="slot-ref" className="text-[11px] font-bold uppercase tracking-wider whitespace-nowrap" style={{ color: LGRAY }}>Slot Ref No.</label>
-              <input id="slot-ref" type="text" readOnly value={slotRefText}
-                className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
-                style={{ width: '132px', border: `1.5px solid ${BORDER}`, background: '#F1F5F9', color: savedRef || prefill?.slotRef || newRef ? NAVY : '#94A3B8', fontFamily: 'Consolas, monospace', outline: 'none' }} />
+            <div className="flex items-center gap-1.5 ml-auto" title="Unique slot reference no. — generated automatically for this booking">
+              <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap" style={{ color: LGRAY }}>Slot Ref</span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap"
+                style={{ border: `1px solid ${BORDER}`, background: '#F1F5F9', color: savedRef || prefill?.slotRef || newRef ? NAVY : '#94A3B8', fontFamily: 'Consolas, monospace' }}>
+                {slotRefText}
+              </span>
             </div>
             <div className="flex gap-2">
               {courts.map(c => (
