@@ -161,6 +161,15 @@ async function initDb() {
       KEY idx_slot_lookup (date, court_id, status)
     )
   `)
+  // Score confirmation: who entered the score (player no. 1–4), who confirmed it ("2,3"), and its state.
+  // score_status NULL with a score = an older score from before confirmations, treated as confirmed.
+  const SCORE_COLUMNS = {
+    score_status: "VARCHAR(12) NULL", score_by: 'TINYINT NULL', score_confirmed_by: 'VARCHAR(20) NULL', score_at: 'DATETIME NULL',
+  }
+  const [cols] = await pool.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'slot'")
+  const have = new Set(cols.map(c => c.COLUMN_NAME))
+  for (const [name, type] of Object.entries(SCORE_COLUMNS))
+    if (!have.has(name)) await pool.query(`ALTER TABLE slot ADD COLUMN ${name} ${type}`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS otp_codes (
       email VARCHAR(150) PRIMARY KEY,
@@ -392,42 +401,100 @@ app.post('/api/deposit-slip', async (req, res) => {
   }
 })
 
-// Email a booking confirmation to every registered player. Logged-in users only.
-// Body: { id, token, booking: { court, date, time, duration, total, players: [{ name, cmNo }] } }
+// Booking emails to every registered player, in two stages:
+//   'processing' — sent when the member books (payment not yet approved)
+//   'confirmed'  — sent when the admin approves the payment (or straight away when nothing is due)
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-function confirmationEmail(to, booking, bookedBy) {
-  const rows = [['Court', booking.court], ['Date', booking.date], ['Time', booking.time], ['Duration', booking.duration], ['Booked by', bookedBy], ['Total', booking.total]]
+const EMAIL_STAGES = {
+  processing: {
+    title: 'Padel booking received — in process ⏳',
+    intro: 'your padel booking has been received and is <b>in process</b>. You will get another email as soon as the club confirms the payment.',
+    introText: 'your padel booking has been received and is IN PROCESS. You will get another email as soon as the club confirms the payment.',
+    status: 'In process', color: '#C2410C', subject: 'Padel booking in process',
+  },
+  confirmed: {
+    title: 'Padel booking confirmed ✓',
+    intro: 'your padel slot is <b>confirmed</b>. See you on the court!',
+    introText: 'your padel slot is CONFIRMED. See you on the court!',
+    status: 'Confirmed', color: '#047857', subject: 'Padel booking confirmed',
+    thanks: 'Thank you for booking with North Nazimabad Gymkhana Trust and for your payment. We look forward to welcoming you and your team on the court — enjoy your game!',
+  },
+}
+
+function bookingEmail(to, booking, bookedBy, stage) {
+  const s = EMAIL_STAGES[stage] || EMAIL_STAGES.confirmed
+  const rows = [
+    ...(booking.slotRef ? [['Slot Ref No.', booking.slotRef]] : []),
+    ['Status', s.status], ['Court', booking.court], ['Date', booking.date], ['Time', booking.time],
+    ...(booking.duration ? [['Duration', booking.duration]] : []),
+    ['Booked by', bookedBy],
+    ...(booking.total ? [['Total', booking.total]] : []),
+  ]
   // Padel is 2 vs 2: show Team 1 and Team 2
   const teamList = team => booking.players.filter(p => (p.team || 1) === team)
   const playerLine = p => `<b>${esc(p.name)}</b>${p.cmNo ? ` · ${esc(p.cmNo)}` : ''}`
   const players = [1, 2].map(team => `
     <li style="margin:4px 0"><span style="color:${team === 1 ? '#1B2E4B' : '#4A6FA5'};font-weight:800">Team ${team}:</span>
       ${teamList(team).map(playerLine).join(' &amp; ') || '<span style="color:#94A3B8">—</span>'}</li>`).join('')
+  const cell = (k, v) => k === 'Status'
+    ? `<span style="color:${s.color}">${esc(v)}</span>` : esc(v)
   const html = `
-  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:auto;border:1px solid #DDE3EC;border-radius:14px;overflow:hidden">
+  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:auto;background:#FFFFFF;border:1px solid #DDE3EC;border-radius:14px;overflow:hidden">
     <div style="background:#1B2E4B;color:#fff;padding:18px 22px">
       <div style="font-size:12px;opacity:.6;letter-spacing:.08em">NORTH NAZIMABAD GYMKHANA TRUST</div>
-      <div style="font-size:20px;font-weight:800;margin-top:4px">Padel court booking confirmed ✓</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">${s.title}</div>
     </div>
     <div style="padding:20px 22px;color:#1B2E4B">
-      <p style="margin:0 0 14px">Hi <b>${esc(to.name)}</b>, your padel slot is confirmed. See you on the court!</p>
+      <p style="margin:0 0 14px">Hi <b>${esc(to.name)}</b>, ${s.intro}</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
-        ${rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#94A3B8;border-bottom:1px solid #EEF2F7">${k}</td><td style="padding:6px 0;text-align:right;font-weight:700;border-bottom:1px solid #EEF2F7">${esc(v)}</td></tr>`).join('')}
+        ${rows.map(([k, v]) => `<tr><td style="padding:6px 0;color:#94A3B8;border-bottom:1px solid #EEF2F7">${k}</td><td style="padding:6px 0;text-align:right;font-weight:700;border-bottom:1px solid #EEF2F7">${cell(k, v)}</td></tr>`).join('')}
       </table>
-      <p style="margin:16px 0 6px;font-weight:700">Teams — Team 1 vs Team 2</p>
+      <p style="margin:16px 0 6px;font-weight:700">Players — Team 1 vs Team 2</p>
       <ul style="margin:0;padding-left:18px;font-size:14px;list-style:none;padding:0">${players}</ul>
+      ${s.thanks ? `<p style="margin:18px 0 0;padding:12px 14px;background:#ECFDF5;border-radius:10px;color:#065F46;font-size:14px">${s.thanks}<br><b>— NNG Trust Padel Team</b></p>` : ""}
     </div>
     <div style="background:#F8FAFC;padding:12px 22px;font-size:12px;color:#94A3B8">This is an automatic message from the NNG Trust padel booking system.</div>
   </div>`
-  const text = `Hi ${to.name}, your padel slot is confirmed.\n` +
+  const text = `Hi ${to.name}, ${s.introText}\n\n` +
     rows.map(([k, v]) => `${k}: ${v}`).join('\n') + '\n\n' +
-    [1, 2].map(team => `Team ${team}: ${teamList(team).map(p => `${p.name}${p.cmNo ? ` (${p.cmNo})` : ''}`).join(' & ') || '—'}`).join('\n')
-  return { html, text }
+    [1, 2].map(team => `Team ${team}: ${teamList(team).map(p => `${p.name}${p.cmNo ? ` (${p.cmNo})` : ''}`).join(' & ') || '—'}`).join('\n') +
+    (s.thanks ? `\n\n${s.thanks}\n— NNG Trust Padel Team` : '')
+  return { html, text, subject: `${s.subject} — ${booking.date}, ${booking.time}, ${booking.court}` }
 }
 
+// Email every registered player of a booking. Player 1 is the booking member; others are found by membership no + name.
+async function emailBookingPlayers(booking, booker, stage) {
+  const recipients = [], skipped = []
+  for (const [i, p] of booking.players.entries()) {
+    let row = null
+    if (i === 0) row = booker
+    else if (p.cmNo && p.name) {
+      const [rows] = await pool.query('SELECT full_name, email_address FROM padalcreate WHERE membership_no = ? AND full_name = ?',
+        [String(p.cmNo).trim().toUpperCase(), cleanName(p.name)])
+      row = rows[0]
+    }
+    if (!row?.email_address) { skipped.push({ name: p.name, reason: 'not a registered member' }); continue }
+    if (recipients.some(r => r.email === row.email_address)) continue // same email only once
+    recipients.push({ name: row.full_name, email: row.email_address })
+  }
+  const results = await Promise.allSettled(recipients.map(r => {
+    const { html, text, subject } = bookingEmail(r, booking, booker?.full_name || booking.players[0]?.name || '—', stage)
+    return mailer.sendMail({ from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`, to: r.email, subject, html, text })
+  }))
+  const sent = []
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') sent.push({ name: recipients[i].name })
+    else { console.error(`Booking email (${stage}) failed:`, recipients[i].email, r.reason?.message); skipped.push({ name: recipients[i].name, reason: 'email could not be sent' }) }
+  })
+  return { sent, skipped }
+}
+
+// Sent by the booking page right after saving. Logged-in users only.
+// Body: { id, token, slotId, booking: { court, date, time, duration, total, players: [{ name, cmNo, team }] } }
+// The stage comes from the saved slot: payment not yet approved → 'processing', otherwise 'confirmed'.
 app.post('/api/booking-confirmation', async (req, res) => {
-  const { id, token, booking } = req.body || {}
+  const { id, token, slotId, booking } = req.body || {}
   if (!id || !tokenValid(id, token))
     return res.status(401).json({ error: 'Your session has expired. Please log in again.', relogin: true })
   if (!booking?.players?.length || booking.players.length > 4)
@@ -436,36 +503,15 @@ app.post('/api/booking-confirmation', async (req, res) => {
   try {
     const [[booker]] = await pool.query('SELECT * FROM padalcreate WHERE id = ?', [id])
     if (!booker) return res.status(404).json({ error: 'Account not found.' })
-
-    // Find each player's email: Player 1 is the logged-in member, others by membership no + name
-    const recipients = [], skipped = []
-    for (const [i, p] of booking.players.entries()) {
-      let row = null
-      if (i === 0) row = booker
-      else if (p.cmNo && p.name) {
-        const [rows] = await pool.query('SELECT full_name, email_address FROM padalcreate WHERE membership_no = ? AND full_name = ?',
-          [String(p.cmNo).trim().toUpperCase(), cleanName(p.name)])
-        row = rows[0]
-      }
-      if (!row) { skipped.push({ name: p.name, reason: 'not a registered member' }); continue }
-      if (recipients.some(r => r.email === row.email_address)) continue // same email only once
-      recipients.push({ name: row.full_name, email: row.email_address })
+    let stage = 'processing', slotRef = null
+    if (slotId) {
+      const [[slot]] = await pool.query('SELECT slot_ref, payment_received FROM slot WHERE id = ? AND user_id = ?', [slotId, id])
+      if (slot) { stage = slot.payment_received ? 'confirmed' : 'processing'; slotRef = slot.slot_ref || slotRefFor(slotId) }
     }
-
-    const subject = `Padel booking confirmed — ${booking.date}, ${booking.time}, ${booking.court}`
-    const results = await Promise.allSettled(recipients.map(r => {
-      const { html, text } = confirmationEmail(r, booking, booker.full_name)
-      return mailer.sendMail({ from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`, to: r.email, subject, html, text })
-    }))
-    const sent = []
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled') sent.push({ name: recipients[i].name })
-      else { console.error('Confirmation email failed:', recipients[i].email, r.reason?.message); skipped.push({ name: recipients[i].name, reason: 'email could not be sent' }) }
-    })
-    res.json({ sent, skipped })
+    res.json({ ...(await emailBookingPlayers({ ...booking, slotRef }, booker, stage)), stage })
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: 'Could not send confirmation emails.' })
+    res.status(500).json({ error: 'Could not send booking emails.' })
   }
 })
 
@@ -553,6 +599,8 @@ function isAdmin(req) {
 // "6-4 3-6 7-5" <-> [[6,4],[3,6],[7,5]]
 const scoreToText = sets => sets?.length ? sets.map(([a, b]) => `${a}-${b}`).join(' ') : null
 const textToScore = text => text ? { sets: String(text).trim().split(/\s+/).map(s => s.split('-').map(Number)) } : null
+// Player numbers (1–4) who confirmed the current score
+const scoreConfirmers = r => String(r.score_confirmed_by || '').split(',').map(Number).filter(n => n >= 1 && n <= 4)
 
 // ── Advance balance (credit) ──
 // Current balance; pass a transaction connection + lock=true when about to spend it
@@ -643,6 +691,9 @@ function slotToBooking(r) {
     creditUsed: Number(r.credit_used || 0), creditRefunded: Number(r.credit_refunded || 0),
     amountDue: Math.max(0, Number(r.payment || 0) - Number(r.credit_used || 0)), refundable: refundableAmount(r),
     score: textToScore(r.score), status: r.status, createdAt: r.created_at,
+    // 'pending' = waiting for another player to confirm; 'confirmed' (older scores without a state count as confirmed)
+    scoreStatus: r.score ? (r.score_status === 'pending' ? 'pending' : 'confirmed') : null,
+    scoreBy: r.score_by || null, scoreConfirmedBy: scoreConfirmers(r),
     // Admin approves the payment → Confirmed; until then the booking shows as Processing
     paymentReceived: !!r.payment_received, paymentReceivedAt: r.payment_received_at || null,
   }
@@ -919,7 +970,113 @@ app.post('/api/slots/:id/cancel', async (req, res) => {
   }
 })
 
-// Body: { sets: [[6,4],[3,6]] } or { sets: null } to clear
+// ── Match score + confirmation by another player ──
+// The player who enters the score can't confirm it; it's Confirmed once a player of Team 1 and a player of Team 2 confirm.
+const slotPlayers = row => [1, 2, 3, 4]
+  .map(n => ({ n, team: n <= 2 ? 1 : 2, name: row[`player${n}`], cmNo: row[`player${n}_cm`] }))
+  .filter(p => p.name)
+// The logged-in member's player number in this booking (the booker is player 1 when not found by name)
+async function myPlayerNo(row, userId) {
+  const [[me]] = await pool.query('SELECT full_name, membership_no FROM padalcreate WHERE id = ?', [userId])
+  const p = slotPlayers(row).find(p => me && p.name === me.full_name && p.cmNo === me.membership_no)
+  return p ? p.n : row.user_id === userId ? 1 : null
+}
+// Link token for one player and one score — a changed score makes the old links stop working
+const scoreLinkToken = (slotId, n, score) =>
+  crypto.createHmac('sha256', SESSION_SECRET).update(`score|${slotId}|${n}|${score}`).digest('hex')
+const scoreTokenValid = (slotId, n, score, token) => {
+  const a = Buffer.from(scoreLinkToken(slotId, n, score)), b = Buffer.from(String(token || ''))
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+// Confirmed once at least one player of Team 1 AND one of Team 2 (players 1–2 / 3–4) confirmed — not counting
+// the one who entered it. Only when a team has nobody besides that player does the entry count for that team.
+const playerTeam = n => (n <= 2 ? 1 : 2)
+function scoreFullyConfirmed(row, confirmers) {
+  const others = slotPlayers(row).filter(p => p.n !== row.score_by)
+  return [1, 2].every(team => others.some(p => p.team === team)
+    ? confirmers.some(n => playerTeam(n) === team && n !== row.score_by)
+    : playerTeam(row.score_by) === team)
+}
+// "Team 2" / "Team 1 and Team 2" — teams still missing a confirmation
+function teamsStillToConfirm(row) {
+  const confirmers = scoreConfirmers(row)
+  const others = slotPlayers(row).filter(p => p.n !== row.score_by)
+  return [1, 2].filter(team => others.some(p => p.team === team) && !confirmers.some(n => playerTeam(n) === team))
+    .map(t => `Team ${t}`).join(' and ')
+}
+// Record a confirmation; returns the updated row
+async function confirmScore(slotId, n) {
+  const [[row]] = await pool.query('SELECT * FROM slot WHERE id = ?', [slotId])
+  if (!row?.score || row.score_status !== 'pending' || n === row.score_by) return row || null
+  const confirmers = [...new Set([...scoreConfirmers(row), n])].sort()
+  const status = scoreFullyConfirmed(row, confirmers) ? 'confirmed' : 'pending'
+  await pool.query('UPDATE slot SET score_confirmed_by = ?, score_status = ? WHERE id = ? AND score = ?', [confirmers.join(','), status, slotId, row.score])
+  const [[updated]] = await pool.query('SELECT * FROM slot WHERE id = ?', [slotId])
+  return updated
+}
+
+const emailRow = (k, v) => `<tr><td style="padding:6px 0;color:#94A3B8;border-bottom:1px solid #EEF2F7">${k}</td><td style="padding:6px 0;text-align:right;font-weight:700;border-bottom:1px solid #EEF2F7">${esc(v)}</td></tr>`
+
+function scoreEmail(to, d, enteredBy, sets, link) {
+  const teamNames = team => d.players.filter(p => p.team === team).map(p => esc(p.name)).join(' &amp; ') || '—'
+  const html = `
+  <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:auto;background:#FFFFFF;border:1px solid #DDE3EC;border-radius:14px;overflow:hidden">
+    <div style="background:#1B2E4B;color:#fff;padding:18px 22px">
+      <div style="font-size:12px;opacity:.6;letter-spacing:.08em">NORTH NAZIMABAD GYMKHANA TRUST</div>
+      <div style="font-size:20px;font-weight:800;margin-top:4px">Please confirm the match score</div>
+    </div>
+    <div style="padding:20px 22px;color:#1B2E4B">
+      <p style="margin:0 0 14px">Hi <b>${esc(to.name)}</b>, <b>${esc(enteredBy)}</b> entered the score for your padel match. Please check it and confirm.<br>
+        <span style="font-size:12px;color:#64748B">The score is confirmed once at least one player from each team (Team 1 and Team 2) confirms it.</span></p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        ${[['Slot Ref No.', d.slotRef], ['Court', d.court], ['Date', d.date], ['Time', d.time]].map(([k, v]) => emailRow(k, v)).join('')}
+      </table>
+      <p style="margin:16px 0 6px;font-weight:700">Team 1: ${teamNames(1)} &nbsp;vs&nbsp; Team 2: ${teamNames(2)}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        ${sets.map(([a, b], i) => emailRow(`Set ${i + 1}`, `${a} – ${b}`)).join('')}
+      </table>
+      <p style="margin:22px 0 6px;text-align:center">
+        <a href="${link}" style="display:inline-block;background:#1B2E4B;color:#fff;text-decoration:none;font-weight:800;padding:12px 26px;border-radius:10px">Confirm score</a>
+      </p>
+      <p style="margin:8px 0 0;font-size:12px;color:#94A3B8;text-align:center">Score not right? Don&#39;t confirm — log in and correct it from My Bookings.</p>
+    </div>
+    <div style="background:#F8FAFC;padding:12px 22px;font-size:12px;color:#94A3B8">This is an automatic message from the NNG Trust padel booking system.</div>
+  </div>`
+  const text = `Hi ${to.name}, ${enteredBy} entered the score for your padel match (${d.slotRef}, ${d.court}, ${d.date}, ${d.time}).\n\n` +
+    sets.map(([a, b], i) => `Set ${i + 1}: ${a}-${b}`).join('\n') +
+    `\n\nConfirm the score: ${link}\n\nScore not right? Don't confirm — log in and correct it from My Bookings.`
+  return { html, text, subject: `Please confirm the score — ${d.slotRef}, ${d.date}` }
+}
+
+// Email the confirm link to every registered player except the one who entered the score
+async function emailScoreConfirm(row, byNo, baseUrl) {
+  const d = slotEmailDetails(row)
+  const sets = textToScore(row.score).sets
+  const players = slotPlayers(row)
+  const enteredBy = players.find(p => p.n === byNo)?.name || 'A player'
+  const sent = [], skipped = [], seen = new Set()
+  for (const p of players) {
+    if (p.n === byNo) continue
+    let rec = null
+    if (p.n === 1 && row.user_id) [[rec]] = await pool.query('SELECT full_name, email_address FROM padalcreate WHERE id = ?', [row.user_id])
+    else if (p.cmNo) [[rec]] = await pool.query('SELECT full_name, email_address FROM padalcreate WHERE membership_no = ? AND full_name = ?',
+      [String(p.cmNo).trim().toUpperCase(), cleanName(p.name)])
+    if (!rec?.email_address) { skipped.push({ name: p.name, reason: 'not a registered member' }); continue }
+    if (seen.has(rec.email_address)) continue
+    seen.add(rec.email_address)
+    const link = `${baseUrl}/api/score/confirm?s=${row.id}&p=${p.n}&t=${scoreLinkToken(row.id, p.n, row.score)}`
+    const { html, text, subject } = scoreEmail({ name: rec.full_name }, d, enteredBy, sets, link)
+    try {
+      await mailer.sendMail({ from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`, to: rec.email_address, subject, html, text })
+      sent.push({ name: rec.full_name })
+    } catch (err) { console.error('Score email failed:', rec.email_address, err.message); skipped.push({ name: rec.full_name, reason: 'email could not be sent' }) }
+  }
+  return { sent, skipped }
+}
+// Where the confirm link points: PUBLIC_URL in .env, else the website that sent the request
+const publicBaseUrl = req => (process.env.PUBLIC_URL || req.get('origin') || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '')
+
+// Body: { sets: [[6,4],[3,6]] } or { sets: null } to clear. A new score waits for another player's confirmation.
 app.post('/api/slots/:id/score', async (req, res) => {
   const sets = req.body?.sets
   if (sets !== null && !(Array.isArray(sets) && sets.length >= 1 && sets.length <= 3 &&
@@ -930,11 +1087,100 @@ app.post('/api/slots/:id/score', async (req, res) => {
     if (!row) return
     if (row.status === 'cancelled') return res.status(400).json({ error: 'Cancelled bookings can\'t have a score.' })
     const text = scoreToText(sets)
-    await pool.query('UPDATE slot SET score = ? WHERE id = ?', [text, row.id])
-    res.json({ booking: slotToBooking({ ...row, score: text }) })
+    if (text === row.score) return res.json({ booking: slotToBooking(row), emails: null }) // unchanged
+    const byNo = text ? await myPlayerNo(row, currentUserId(req)) : null
+    await pool.query('UPDATE slot SET score = ?, score_status = ?, score_by = ?, score_confirmed_by = NULL, score_at = ? WHERE id = ?',
+      [text, text ? 'pending' : null, byNo, text ? new Date() : null, row.id])
+    const [[updated]] = await pool.query('SELECT * FROM slot WHERE id = ?', [row.id])
+    const emails = text
+      ? await emailScoreConfirm(updated, byNo, publicBaseUrl(req)).catch(err => {
+        console.error('Score emails failed:', err.message); return { sent: [], skipped: [], error: true }
+      })
+      : null
+    res.json({ booking: slotToBooking(updated), emails })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not save the score.' })
+  }
+})
+
+// Confirm from inside the app (My Bookings) — any player of the booking except the one who entered the score
+app.post('/api/slots/:id/score/confirm', async (req, res) => {
+  try {
+    const row = await memberSlot(req, res)
+    if (!row) return
+    if (!row.score || row.score_status !== 'pending') return res.status(400).json({ error: 'There is no score waiting for confirmation.' })
+    const n = await myPlayerNo(row, currentUserId(req))
+    if (!n) return res.status(403).json({ error: 'Only the players of this match can confirm the score.' })
+    if (n === row.score_by) return res.status(403).json({ error: 'You entered this score — players of both teams have to confirm it.' })
+    if (scoreConfirmers(row).includes(n)) return res.status(400).json({ error: `You already confirmed this score. Waiting for ${teamsStillToConfirm(row)}.` })
+    res.json({ booking: slotToBooking(await confirmScore(row.id, n)) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not confirm the score.' })
+  }
+})
+
+// Confirm link from the email. GET only shows the score with a button (so mail scanners that open links
+// don't confirm by themselves); the button POSTs to the same link.
+function scorePage(title, body, titleColor = '#FFFFFF') {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title></head>
+  <body style="margin:0;background:#F1F4F8;font-family:Segoe UI,Arial,sans-serif;color:#1B2E4B">
+  <div style="max-width:460px;margin:40px auto;padding:0 16px"><div style="background:#fff;border:1px solid #DDE3EC;border-radius:16px;overflow:hidden">
+  <div style="background:#1B2E4B;color:#fff;padding:16px 20px"><div style="font-size:11px;opacity:.6;letter-spacing:.08em">NORTH NAZIMABAD GYMKHANA TRUST</div>
+  <div style="font-size:19px;font-weight:800;margin-top:4px;color:${titleColor}">${esc(title)}</div></div>
+  <div style="padding:18px 20px;font-size:14px">${body}</div></div></div></body></html>`
+}
+async function scoreLinkRow(q) {
+  const id = Number(q.s), n = Number(q.p)
+  if (!Number.isInteger(id) || !(n >= 1 && n <= 4)) return { error: 'This link is not valid.' }
+  const [[row]] = await pool.query('SELECT * FROM slot WHERE id = ?', [id])
+  if (!row?.score) return { error: 'This booking has no score any more.' }
+  if (!scoreTokenValid(id, n, row.score, q.t))
+    return { error: 'This link has expired — the score was changed after this email was sent. Please use the newest email.' }
+  return { row, n }
+}
+const matchHtml = row => {
+  const d = slotEmailDetails(row)
+  const team = t => d.players.filter(p => p.team === t).map(p => esc(p.name)).join(' &amp; ') || '—'
+  const sets = textToScore(row.score).sets.map(([a, b], i) =>
+    `<span style="display:inline-block;margin:2px;padding:4px 10px;border:1px solid #1B2E4B;border-radius:8px;font-weight:800">Set ${i + 1}: ${a}–${b}</span>`).join('')
+  return `<p style="margin:0 0 6px"><b>${esc(d.slotRef)}</b> · ${esc(d.court)} · ${esc(d.date)} · ${esc(d.time)}</p>
+    <p style="margin:0 0 12px">Team 1: <b>${team(1)}</b> vs Team 2: <b>${team(2)}</b></p><div style="margin-bottom:14px">${sets}</div>`
+}
+const OK_COLOR = '#6EE7B7', BAD_COLOR = '#FCA5A5'
+const notOwnPage = row => scorePage('Waiting for the other players', `${matchHtml(row)}<p>You entered this score, so at least one player from each team has to confirm it.</p>`)
+app.get('/api/score/confirm', async (req, res) => {
+  try {
+    const { row, n, error } = await scoreLinkRow(req.query)
+    if (error) return res.status(400).send(scorePage('Link not valid', `<p>${esc(error)}</p>`, BAD_COLOR))
+    if (row.score_status !== 'pending') return res.send(scorePage('Score already confirmed ✓', matchHtml(row), OK_COLOR))
+    if (scoreConfirmers(row).includes(n))
+      return res.send(scorePage('You already confirmed ✓', `${matchHtml(row)}<p>Waiting for a player of <b>${teamsStillToConfirm(row)}</b> to confirm.</p>`, OK_COLOR))
+    if (n === row.score_by) return res.send(notOwnPage(row))
+    const action = `/api/score/confirm?s=${row.id}&p=${n}&t=${encodeURIComponent(req.query.t)}`
+    res.send(scorePage('Confirm the match score', `${matchHtml(row)}
+      <form method="post" action="${esc(action)}" style="margin:0;text-align:center">
+        <button type="submit" style="background:#1B2E4B;color:#fff;border:0;font-weight:800;font-size:15px;padding:12px 28px;border-radius:10px;cursor:pointer">Yes, the score is correct</button>
+      </form>
+      <p style="margin:12px 0 0;font-size:12px;color:#94A3B8;text-align:center">Score not right? Close this page and correct it from My Bookings.</p>`))
+  } catch (err) {
+    console.error(err)
+    res.status(500).send(scorePage('Something went wrong', '<p>Please try again later.</p>', BAD_COLOR))
+  }
+})
+app.post('/api/score/confirm', async (req, res) => {
+  try {
+    const { row, n, error } = await scoreLinkRow(req.query)
+    if (error) return res.status(400).send(scorePage('Link not valid', `<p>${esc(error)}</p>`, BAD_COLOR))
+    if (n === row.score_by) return res.status(403).send(notOwnPage(row))
+    const updated = await confirmScore(row.id, n)
+    if (updated.score_status === 'pending')
+      return res.send(scorePage('Thank you — confirmation saved ✓', `${matchHtml(updated)}<p>The score is confirmed once a player of <b>${teamsStillToConfirm(updated)}</b> confirms it too.</p>`, OK_COLOR))
+    res.send(scorePage('Score confirmed ✓', `${matchHtml(updated)}<p>Thank you! Both teams confirmed — the score now shows as <b>Confirmed</b> in My Bookings.</p>`, OK_COLOR))
+  } catch (err) {
+    console.error(err)
+    res.status(500).send(scorePage('Something went wrong', '<p>Please try again later.</p>', BAD_COLOR))
   }
 })
 
@@ -1071,16 +1317,39 @@ app.get('/api/credit', async (req, res) => {
   res.json({ balance: await creditBalance(pool, userId), history: history.map(h => ({ ...h, amount: Number(h.amount) })) })
 })
 
-// Body: { received: true | false } — admin approves (or un-approves) the booking's payment
+// Booking details for the emails, from a saved slot row ("Sat, 17 October 2026", "6pm–7pm")
+const hourText = h => { const x = ((h % 24) + 24) % 24; return `${x % 12 || 12}${x < 12 ? 'am' : 'pm'}` }
+function slotEmailDetails(row) {
+  const b = slotToBooking(row)
+  const d = new Date(`${b.date}T00:00`)
+  const date = isNaN(d) ? String(b.date) : d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+  const hours = b.endHour - b.startHour
+  return {
+    slotRef: b.slotRef, court: b.courtName, date, time: `${hourText(b.startHour)}–${hourText(b.endHour)}`,
+    duration: `${hours} ${hours === 1 ? 'hour' : 'hours'}`,
+    total: b.payment != null ? `Rs. ${Number(b.payment).toLocaleString()}` : null,
+    players: b.players.map(p => ({ name: p.name, cmNo: p.cmNo, team: p.team })),
+  }
+}
+
+// Body: { received: true | false } — admin approves (or un-approves) the booking's payment.
+// Approving sends the "booking confirmed" email to every registered player.
 app.post('/api/admin/slots/:id/payment', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
   const received = req.body?.received === true
   try {
-    const [r] = await pool.query('UPDATE slot SET payment_received = ?, payment_received_at = ? WHERE id = ?',
+    const [[before]] = await pool.query('SELECT payment_received FROM slot WHERE id = ?', [req.params.id])
+    if (!before) return res.status(404).json({ error: 'Booking not found.' })
+    await pool.query('UPDATE slot SET payment_received = ?, payment_received_at = ? WHERE id = ?',
       [received ? 1 : 0, received ? new Date() : null, req.params.id])
-    if (!r.affectedRows) return res.status(404).json({ error: 'Booking not found.' })
     const [[row]] = await pool.query('SELECT * FROM slot WHERE id = ?', [req.params.id])
-    res.json({ booking: slotToBooking(row) })
+    let emails = null
+    if (received && !before.payment_received && row.status !== 'cancelled') {
+      const [[booker]] = row.user_id ? await pool.query('SELECT * FROM padalcreate WHERE id = ?', [row.user_id]) : [[null]]
+      emails = await emailBookingPlayers(slotEmailDetails(row), booker, 'confirmed')
+        .catch(err => { console.error('Confirmed emails failed:', err.message); return { sent: [], skipped: [], error: true } })
+    }
+    res.json({ booking: slotToBooking(row), emails })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not update the payment.' })

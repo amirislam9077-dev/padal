@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import EmailNotice from '../components/EmailNotice'
 import { getCourts, formatHour, formatSlotRange, adminSlotsApi, adminSetPaymentApi } from '../store'
 import { CourtCharts } from '../components/BookingCharts'
 import { CalendarDays, CheckCircle, XCircle, TrendingUp, Clock, Paperclip, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react'
@@ -14,12 +15,15 @@ export default function AdminDashboard() {
   const [loadError, setLoadError] = useState('')
   // Tick "Payment received" → status Confirmed; untick → Processing
   const [savingPay, setSavingPay] = useState(null)
+  const [emailNote, setEmailNote] = useState(null)
+  const closeEmailNote = useCallback(() => setEmailNote(null), [])
   async function togglePayment(b) {
     setSavingPay(b.id)
     const r = await adminSetPaymentApi(b.id, !b.paymentReceived)
     setSavingPay(null)
     if (r.error) { alert(r.error); return }
     setBookings(list => list.map(x => (x.id === b.id ? r.booking : x)))
+    if (r.emails) setEmailNote({ slotRef: r.booking?.slotRef, ...r.emails }) // approving sends the "confirmed" email
   }
 
   // All bookings from MySQL (slot table)
@@ -102,6 +106,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
+      <EmailNotice note={emailNote} onClose={closeEmailNote} />
       <div className="print:hidden">
         <h1 className="text-2xl font-black" style={{ color: NAVY }}>Dashboard</h1>
         <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>

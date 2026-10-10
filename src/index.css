@@ -206,8 +206,6 @@ html, body { overflow-x: clip; }
 /* chips that do not fully fit wrap into a hidden 2nd column, so no half-cut chips */
 .cal-times { column-gap: 100%; }
 .cal-times::-webkit-scrollbar { display: none; }
-.cal-pop { animation: calPop 0.12s ease-out; }
-@keyframes calPop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 
 /* Admin: bookings whose payment is still Processing */
 .row-processing td { color: #7C2D12; font-weight: 700; }

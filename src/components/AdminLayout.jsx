@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House } from 'lucide-react'
 import { adminLogout, getCourts } from '../store'
 
 const NAVY = '#1B2E4B'
@@ -28,6 +28,8 @@ export default function AdminLayout() {
     { to: '/admin/scale', label: 'Scale', icon: BarChart3 },
     { to: '/admin/courts', label: 'Courts', icon: Grid2x2 },
     { to: '/admin/events', label: 'Events', icon: Trophy },
+    // Back to the public booking site
+    { to: '/', label: 'Booking Home Page', short: 'Home', icon: House, divider: true },
   ]
 
   return (
@@ -46,8 +48,8 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1">
-          {navLinks.map(({ to, label, icon: Icon }) => (
-            <div key={to}>
+          {navLinks.map(({ to, label, icon: Icon, divider }) => (
+            <div key={to} className={divider ? 'pt-2 mt-2' : ''} style={divider ? { borderTop: '1px solid rgba(255,255,255,0.08)' } : undefined}>
               <Link to={to}
                 className="nav-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold"
                 style={pathname === to
@@ -96,14 +98,21 @@ export default function AdminLayout() {
                 <p className="text-xs truncate" style={{ color: '#7A9CBD' }}>Padel Management</p>
               </div>
             </div>
-            <button onClick={logout}
-              className="btn-ghost flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg shrink-0"
-              style={{ color: '#8FA9C8', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)' }}>
-              <LogOut size={13} /> Logout
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Link to="/" title="Booking Home Page"
+                className="btn-ghost flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
+                style={{ color: '#8FA9C8', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)' }}>
+                <House size={13} /> Home
+              </Link>
+              <button onClick={logout}
+                className="btn-ghost flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
+                style={{ color: '#8FA9C8', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)' }}>
+                <LogOut size={13} /> Logout
+              </button>
+            </div>
           </div>
           <nav className="admin-tabs flex overflow-x-auto" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            {navLinks.map(({ to, label, short, icon: Icon }) => (
+            {navLinks.filter(l => !l.divider).map(({ to, label, short, icon: Icon }) => ( // Home is a button beside Logout here
               <Link key={to} to={to}
                 className="nav-link flex-1 shrink-0 min-w-[64px] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap"
                 style={pathname === to

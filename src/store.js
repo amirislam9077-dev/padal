@@ -218,6 +218,11 @@ export function creditApi() {
   return headers ? apiRequest('/api/credit', { headers }) : Promise.resolve(RELOGIN)
 }
 
+// Another player of the match confirms the score (the one who entered it can't)
+export function confirmScoreApi(id) {
+  const headers = memberHeaders()
+  return headers ? apiRequest(`/api/slots/${id}/score/confirm`, { method: 'POST', headers }) : Promise.resolve(RELOGIN)
+}
 export function scoreSlotApi(id, sets) {
   const headers = memberHeaders()
   return headers ? apiRequest(`/api/slots/${id}/score`, { method: 'POST', body: { sets }, headers }) : Promise.resolve(RELOGIN)
@@ -253,10 +258,11 @@ export const adminSetStatusApi = (id, status) => apiRequest(`/api/admin/slots/${
 export const adminSetPaymentApi = (id, received) => apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() })
 export const adminDeleteSlotApi = id => apiRequest(`/api/admin/slots/${id}`, { method: 'DELETE', headers: adminHeaders() })
 
-export async function sendBookingEmailsApi(booking) {
+// slotId: the saved booking — the server picks the email (in process / confirmed) from its payment status
+export async function sendBookingEmailsApi(booking, slotId) {
   const user = getCurrentUser()
   if (!user?.token) return { error: 'Please log out and log in again.', relogin: true }
-  return postJson('/api/booking-confirmation', { id: user.id, token: user.token, booking })
+  return postJson('/api/booking-confirmation', { id: user.id, token: user.token, slotId, booking })
 }
 
 export async function uploadSlipApi(file, name) {

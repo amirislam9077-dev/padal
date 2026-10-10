@@ -5,6 +5,10 @@ import { getCourts, formatSlotRange, formatHourShort, adminSlotsApi, TIME_SLOTS,
 
 const NAVY = '#1B2E4B'
 const INK = '#0F172A'
+const DATE_C = '#4F46E5' // date numbers in the month grid (indigo)
+const SLOT_C = '#3730A3' // booked-slot count chip (indigo text, soft indigo fill — same family as the dates)
+const SLOT_BG = '#EEF2FF'
+const SLOT_LINE = '#C7D2FE'
 const MUTED = '#64748B'
 const FAINT = '#94A3B8'
 const LINE = '#E8EDF3'
@@ -30,17 +34,8 @@ export default function AdminCalendar() {
   const [selected, setSelected] = useState(todayKey)
   const [filterCourt, setFilterCourt] = useState('all')
   const [showCancelled, setShowCancelled] = useState(true)
-  // Hovered day box → a card over it listing all its bookings: { key, rect }
-  const [hover, setHover] = useState(null)
   // Court shown in the time-slot grid (follows the court filter when one court is picked)
   const [slotCourt, setSlotCourt] = useState(() => getCourts()[0]?.id || '')
-  useEffect(() => {
-    if (!hover) return
-    const close = () => setHover(null) // the card is placed for the current scroll position
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close) }
-  }, [hover])
 
   useEffect(() => {
     let cancelled = false
@@ -230,10 +225,8 @@ export default function AdminCalendar() {
               const weekend = d.getDay() === 0 || d.getDay() === 6
               return (
                 <button key={key} type="button" onClick={() => pickDay(d)} aria-pressed={isSel}
-                  onMouseEnter={e => setHover(list.length ? { key, rect: e.currentTarget.getBoundingClientRect() } : null)}
-                  onMouseLeave={() => setHover(h => (h?.key === key ? null : h))}
                   aria-label={`${format(d, 'EEEE d MMMM')}: ${list.length} bookings`}
-                  className="cal-day relative text-left px-1.5 pt-1 pb-1.5 flex flex-col gap-1 min-h-[84px] lg:min-h-0 overflow-hidden focus:outline-none"
+                  className="cal-day relative text-left px-1.5 pt-1 pb-1.5 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-1 min-h-[84px] lg:min-h-0 overflow-hidden focus:outline-none"
                   style={{
                     borderRight: (i + 1) % 7 ? `1px solid ${LINE}` : 'none',
                     borderBottom: i < days.length - 7 ? `1px solid ${LINE}` : 'none',
@@ -242,32 +235,36 @@ export default function AdminCalendar() {
                   {isSel && <span className="absolute inset-0 pointer-events-none" style={{ boxShadow: `inset 0 0 0 2px ${NAVY}` }} />}
                   <span className="flex items-center justify-between shrink-0">
                     <span className="text-xs font-bold w-[22px] h-[22px] rounded-full flex items-center justify-center"
-                      style={isToday ? { background: NAVY, color: 'white' } : { color: inMonth ? INK : '#CBD5E1' }}>
+                      style={isToday ? { background: DATE_C, color: 'white' } : { color: inMonth ? DATE_C : '#CBD5E1' }}>
                       {format(d, 'd')}
                     </span>
-                    {list.length > 1 && (
-                      <span className="text-[10px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center"
-                        style={{ background: '#EEF2F7', color: '#4A6FA5', opacity: inMonth ? 1 : 0.5 }}>{list.length}</span>
-                    )}
                   </span>
-                  <span className="cal-times flex-1 min-h-0 overflow-hidden flex flex-col flex-wrap content-start gap-[3px]">
-                  {list.map(b => { // every booking of the day
-                    const off = b.status === 'cancelled'
-                    const c = courtColor(b.courtId)
+                  {/* Only the number of booked slots in the box; full details in the day panel */}
+                  {(() => {
+                    const booked = list.filter(b => b.status !== 'cancelled').length
+                    const cancelled = list.length - booked
+                    if (!list.length) return null
                     return (
-                      // Only the booking time in the box; name / court on hover, full details in the day panel
-                      <span key={b.id} title={`${formatSlotRange(b.startHour, b.endHour)} · ${b.courtName} · ${b.playerName}${off ? ' (cancelled)' : ''}`}
-                        className="block shrink-0 w-full text-[10.5px] font-bold leading-[15px] rounded px-1.5 truncate"
-                        style={{
-                          background: off ? '#F8FAFC' : `${c}12`, borderLeft: `3px solid ${off ? '#CBD5E1' : c}`,
-                          color: off ? FAINT : c, textDecoration: off ? 'line-through' : 'none',
-                          opacity: inMonth ? 1 : 0.5,
-                        }}>
-                        {formatSlotRange(b.startHour, b.endHour)}
+                      // Small chips: bottom of the box on phones/tablets, beside the date on laptops (short rows)
+                      <span className="mt-auto lg:mt-[2px] flex flex-wrap lg:flex-nowrap items-center lg:justify-end gap-1 min-w-0" style={{ opacity: inMonth ? 1 : 0.5 }}>
+                        {booked > 0 && (
+                          <span className="inline-flex items-center gap-1 h-[18px] rounded-md px-1.5 text-[11px] font-semibold leading-none whitespace-nowrap"
+                            style={{ background: SLOT_BG, color: SLOT_C, border: `1px solid ${SLOT_LINE}` }}>
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: DATE_C }} />
+                            <span className="font-bold">{booked}</span>
+                            {/* Phones: number only, the word doesn't fit the narrow box */}
+                            <span className="hidden sm:inline">{booked === 1 ? 'slot' : 'slots'}</span>
+                          </span>
+                        )}
+                        {cancelled > 0 && (
+                          <span className="inline-flex items-center h-[18px] rounded-md px-1.5 text-[10px] font-semibold leading-none whitespace-nowrap"
+                            style={{ background: '#F8FAFC', color: FAINT, border: `1px solid ${LINE}` }}>
+                            {cancelled}<span className="hidden sm:inline">&nbsp;cancelled</span>
+                          </span>
+                        )}
                       </span>
                     )
-                  })}
-                  </span>
+                  })()}
                 </button>
               )
             })}
@@ -341,39 +338,6 @@ export default function AdminCalendar() {
         </div>
       </div>
 
-      {hover && (() => {
-        const list = byDate[hover.key] || []
-        const r = hover.rect
-        const width = Math.max(r.width + 8, 210)
-        const height = 44 + list.length * 26
-        const left = Math.min(Math.max(8, r.left - 4), window.innerWidth - width - 8)
-        const top = Math.max(8, Math.min(r.top - 4, window.innerHeight - height - 8))
-        return (
-          <div className="fixed z-50 bg-white rounded-xl pointer-events-none cal-pop" role="tooltip"
-            style={{ left, top, width, border: `1px solid ${LINE}`, boxShadow: '0 12px 32px rgba(15,23,42,0.18)' }}>
-            <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: `1px solid ${LINE}` }}>
-              <span className="text-xs font-black" style={{ color: INK }}>{format(new Date(hover.key + 'T00:00'), 'EEE d MMM')}</span>
-              <span className="text-[11px] font-semibold" style={{ color: MUTED }}>{list.length} {list.length === 1 ? 'booking' : 'bookings'}</span>
-            </div>
-            <ul className="p-1.5 space-y-[3px]">
-              {list.map(b => {
-                const off = b.status === 'cancelled'
-                const c = courtColor(b.courtId)
-                return (
-                  <li key={b.id} className="flex items-center gap-2 rounded-md px-2 h-[23px] text-[11px]"
-                    style={{ background: off ? '#F8FAFC' : `${c}12`, borderLeft: `3px solid ${off ? '#CBD5E1' : c}` }}>
-                    <span className="font-bold shrink-0" style={{ color: off ? FAINT : c, textDecoration: off ? 'line-through' : 'none' }}>
-                      {formatSlotRange(b.startHour, b.endHour)}
-                    </span>
-                    <span className="truncate" style={{ color: off ? FAINT : '#334155' }}>{b.playerName}</span>
-                    <span className="ml-auto shrink-0 text-[10px] font-semibold" style={{ color: FAINT }}>{off ? 'Cancelled' : b.courtName}</span>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )
-      })()}
     </div>
   )
 }

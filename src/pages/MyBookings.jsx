@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import LoginRequired from '../components/LoginRequired'
-import { formatSlotRange, getCurrentUser, mySlotsApi, cancelSlotApi, scoreSlotApi, creditApi } from '../store'
-import { X, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
+import { formatSlotRange, getCurrentUser, mySlotsApi, cancelSlotApi, scoreSlotApi, confirmScoreApi, creditApi } from '../store'
+import EmailNotice from '../components/EmailNotice'
+import { X, Check, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 
@@ -27,6 +28,20 @@ function teamsOf(b) {
   return [1, 2].map(t => players.filter((p, i) => teamOfPlayer(p, i) === t))
 }
 
+// Score confirmation: a new score waits until a player of Team 1 and a player of Team 2 confirm it
+// (email link or the Confirm buttons here); the player who entered it doesn't count.
+const teamOfNo = n => (n <= 2 ? 1 : 2)
+function scoreConfirmState(b, isMe) {
+  const pending = !!b.score?.sets?.length && b.scoreStatus === 'pending'
+  const myNo = (b.players || []).find(isMe)?.n
+  const confirmedBy = b.scoreConfirmedBy || []
+  const canConfirm = pending && b.status !== 'cancelled' && !!myNo && myNo !== b.scoreBy && !confirmedBy.includes(myNo)
+  const waitingTeams = [1, 2].filter(team =>
+    (b.players || []).some(p => p.n !== b.scoreBy && teamOfNo(p.n) === team) && !confirmedBy.some(n => teamOfNo(n) === team))
+  return { pending, canConfirm, waitingTeams }
+}
+const waitingText = teams => (teams.length ? teams.map(t => `Team ${t}`).join(' & ') : 'confirmation')
+
 // Sets won by each team, and the match winner (best of 3: first to 2 sets)
 // Won − Lost as "+5" / "−1" / "0"
 const signed = n => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0')
@@ -47,6 +62,8 @@ function scoreResult(sets) {
   const draw = sets.length > 0 && won[0] === won[1]
   return { won, games, winner, draw }
 }
+// Only a confirmed score counts for results and totals; a score waiting for another player's confirmation doesn't
+const finalResult = b => (b.score?.sets?.length && b.scoreStatus !== 'pending' ? scoreResult(b.score.sets) : null)
 
 export default function MyBookings() {
   const user = getCurrentUser()
@@ -108,8 +125,32 @@ export default function MyBookings() {
     if (r.error) return r.error
     setBookings(prev => prev.map(b => b.id === id ? r.booking : b))
     setScoring(null)
+    if (r.emails) setScoreNote({
+      slotRef: r.booking?.slotRef, sent: r.emails.sent, skipped: r.emails.skipped, error: r.emails.error,
+      title: r.emails.sent?.length
+        ? <>Score saved — it counts once a player from each team confirms it. "Please confirm the score" email sent to <b>{r.emails.sent.map(x => x.name).join(', ')}</b>.</>
+        : 'Score saved — it counts once a player from each team confirms it. No email could be sent; they can confirm it from My Bookings.',
+    })
     return null
   }
+  const [confirming, setConfirming] = useState(null) // booking id while its confirmation is saving
+  async function confirmScore(id) {
+    if (confirming) return
+    setConfirming(id)
+    const r = await confirmScoreApi(id)
+    setConfirming(null)
+    if (r.error) { alert(r.error); return }
+    setBookings(prev => prev.map(b => b.id === id ? r.booking : b))
+    const left = scoreConfirmState(r.booking, isMe).waitingTeams
+    setScoreNote({
+      ok: true,
+      title: r.booking.scoreStatus === 'confirmed'
+        ? <>{r.booking.slotRef}: score <b>confirmed</b> by both teams ✓</>
+        : <>{r.booking.slotRef}: your confirmation is saved ✓ Waiting for <b>{waitingText(left)}</b>.</>,
+    })
+  }
+  const [scoreNote, setScoreNote] = useState(null)
+  const closeScoreNote = useCallback(() => setScoreNote(null), [])
 
   const today = format(new Date(), 'yyyy-MM-dd') // local date (Pakistan time), not UTC
   const byStart = (a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour
@@ -147,8 +188,9 @@ export default function MyBookings() {
     }
     if (filters.player !== 'all' && !(b.players || []).some(p => `${p.name}|${p.cmNo || ''}` === filters.player)) return false
     if (filters.result !== 'all') {
-      const scored = b.score?.sets?.length ? scoreResult(b.score.sets) : null
-      if (filters.result === 'none') return !scored
+      if (filters.result === 'pending') return b.scoreStatus === 'pending'
+      if (filters.result === 'none') return !b.score?.sets?.length
+      const scored = finalResult(b)
       if (filters.result === 'draw') return !!scored?.draw
       const winner = scored?.winner || null
       if (!winner) return false
@@ -182,13 +224,13 @@ export default function MyBookings() {
 
   // ── Report summary for the filtered list ──
   const played = list.filter(b => b.status !== 'cancelled')
-  const withResult = played.map(b => ({ b, winner: b.score?.sets?.length ? scoreResult(b.score.sets).winner : null, mine: myTeam(b) }))
+  const withResult = played.map(b => ({ b, winner: finalResult(b)?.winner || null, mine: myTeam(b) }))
     .filter(x => x.winner && x.mine)
   const wins = withResult.filter(x => x.winner === x.mine).length
   const losses = withResult.length - wins
-  const draws = played.filter(b => b.score?.sets?.length && scoreResult(b.score.sets).draw).length
-  const gameTotals = played.filter(b => b.score?.sets?.length).reduce((t, b) => {
-    const g = gamesFor(scoreResult(b.score.sets), myTeam(b) || 1)
+  const draws = played.filter(b => finalResult(b)?.draw).length
+  const gameTotals = played.filter(b => finalResult(b)).reduce((t, b) => {
+    const g = gamesFor(finalResult(b), myTeam(b) || 1)
     return { won: t.won + g.won, lost: t.lost + g.lost }
   }, { won: 0, lost: 0 })
   const summary = {
@@ -208,9 +250,9 @@ export default function MyBookings() {
     const lines = list.map(b => {
       const [t1, t2] = teamsOf(b)
       const team = ps => ps.map(p => `${p.name}${p.cmNo ? ` (${p.cmNo})` : ''}`).join(' & ')
-      const r = b.score?.sets?.length ? scoreResult(b.score.sets) : null
+      const r = finalResult(b)
       const mine = myTeam(b)
-      const result = r?.draw ? 'Draw' : !r?.winner ? '' : mine ? (r.winner === mine ? 'You won' : 'You lost') : `Team ${r.winner} won`
+      const result = b.scoreStatus === 'pending' ? 'Waiting for score confirmation' : r?.draw ? 'Draw' : !r?.winner ? '' : mine ? (r.winner === mine ? 'You won' : 'You lost') : `Team ${r.winner} won`
       const d = new Date(b.date + 'T00:00')
       return [b.slotRef, b.date, format(d, 'EEE'), formatSlotRange(b.startHour, b.endHour), b.courtName, b.endHour - b.startHour,
         team(t1), team(t2), b.score?.sets?.map(([x, y]) => `${x}-${y}`).join(' ') || '', r ? gamesFor(r, mine || 1).won : '', r ? gamesFor(r, mine || 1).lost : '', r ? signed(gamesFor(r, mine || 1).won - gamesFor(r, mine || 1).lost) : '', result, b.status, b.payment ?? '', b.bankName || '', b.referenceNo || ''].map(cell).join(',')
@@ -247,6 +289,9 @@ export default function MyBookings() {
 
       {loadError && <p className="mb-3 px-3 py-2 rounded-lg text-sm font-semibold" style={{ border: `1px solid ${INK}`, color: INK }}>{loadError}</p>}
 
+      <ConfirmScorePanel bookings={bookings.filter(b => scoreConfirmState(b, isMe).canConfirm).sort(byStart)}
+        isMe={isMe} confirming={confirming} onConfirm={confirmScore} />
+
       {loading && !bookings.length ? (
         <p className="text-center py-12 text-sm" style={{ color: GRAY }}>Loading your bookings…</p>
       ) : !loadError && bookings.length === 0 ? (
@@ -282,6 +327,7 @@ export default function MyBookings() {
               <option value="won">I won</option>
               <option value="lost">I lost</option>
               <option value="draw">Draw</option>
+              <option value="pending">Score waiting confirmation</option>
               <option value="none">No score yet</option>
             </select>
             <select aria-label="Player" value={filters.player} onChange={e => setFilter('player', e.target.value)} style={{ ...filterInput, maxWidth: '190px' }}>
@@ -406,7 +452,7 @@ export default function MyBookings() {
                   {pageRows.map(b => (
                     <BookingRow key={b.id} booking={b} today={today} isMe={isMe} myTeam={myTeam(b)}
                       onCancel={tab !== 'past' ? cancel : null /* the row only offers Cancel for upcoming bookings */}
-                      onScore={() => setScoring(b)}
+                      onScore={() => setScoring(b)} onConfirmScore={confirmScore}
                       isOwner={b.userId === user.id} />
                   ))}
                 </tbody>
@@ -442,8 +488,55 @@ export default function MyBookings() {
         </>
       )}
 
+      <EmailNotice note={scoreNote} onClose={closeScoreNote} />
       {scoring && <ScoreDialog booking={scoring} onClose={() => setScoring(null)} onSave={score => saveScore(scoring.id, score)} />}
     </div>
+  )
+}
+
+// Scores that wait for MY confirmation — big buttons that are easy to tap on a phone
+function ConfirmScorePanel({ bookings, isMe, confirming, onConfirm }) {
+  if (!bookings.length) return null
+  return (
+    <section data-print="hide" className="print:hidden mb-3 rounded-xl p-3 sm:p-4" aria-label="Scores to confirm"
+      style={{ background: '#FFFBEB', border: '1.5px solid #F59E0B', boxShadow: '0 1px 3px rgba(180,83,9,0.12)' }}>
+      <p className="flex items-center gap-2 font-black text-sm mb-1" style={{ color: '#92400E' }}>
+        <ClipboardList size={16} /> Confirm match score
+        <span className="text-[11px] font-black px-2 py-0.5 rounded-full" style={{ background: '#B45309', color: 'white' }}>{bookings.length}</span>
+      </p>
+      <p className="text-xs mb-3" style={{ color: '#92400E' }}>Check the score and tap <b>Confirm score</b>. It counts once a player from each team confirms.</p>
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        {bookings.map(b => {
+          const [t1, t2] = teamsOf(b)
+          const names = ps => ps.map(p => (isMe(p) ? `${p.name} (you)` : p.name)).join(' & ') || '—'
+          const { waitingTeams } = scoreConfirmState(b, isMe)
+          const busy = confirming === b.id
+          return (
+            <div key={b.id} className="bg-white rounded-lg p-3 flex flex-col gap-2" style={{ border: '1px solid #FCD34D' }}>
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold" style={{ fontFamily: 'Consolas, monospace', color: INK }}>{b.slotRef}</span>
+                <span style={{ color: GRAY }}>{format(new Date(b.date + 'T00:00'), 'EEE d MMM')} · {formatSlotRange(b.startHour, b.endHour)} · {b.courtName}</span>
+              </div>
+              <p className="text-sm leading-snug" style={{ color: INK }}>
+                <b>{names(t1)}</b> <span className="text-xs font-black" style={{ color: GRAY }}>vs</span> <b>{names(t2)}</b>
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {b.score.sets.map(([x, y], i) => (
+                  <span key={i} className="text-sm font-black px-2 py-0.5 rounded-md" style={{ border: `1.5px solid ${INK}`, color: INK, fontVariantNumeric: 'tabular-nums' }}
+                    title={`Set ${i + 1}: Team 1 ${x} – ${y} Team 2`}>{x}–{y}</span>
+                ))}
+                <span className="text-[11px] font-bold ml-auto" style={{ color: '#B45309' }}>Waiting for {waitingText(waitingTeams)}</span>
+              </div>
+              <button type="button" onClick={() => onConfirm(b.id)} disabled={busy}
+                className="w-full h-11 sm:h-10 rounded-lg inline-flex items-center justify-center gap-2 text-sm font-black"
+                style={{ background: INK, color: 'white', opacity: busy ? 0.6 : 1 }}>
+                <Check size={16} strokeWidth={3} /> {busy ? 'Confirming…' : 'Confirm score'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -472,7 +565,7 @@ function TeamCell({ players, isMe }) {
   )
 }
 
-function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }) {
+function BookingRow({ booking, onCancel, onScore, onConfirmScore, today, isMe, myTeam, isOwner }) {
   // Only the member who made the booking can cancel it (the server checks this too)
   const canCancel = onCancel && isOwner && booking.status === 'confirmed' && booking.date >= today
   const cancelled = booking.status === 'cancelled'
@@ -482,8 +575,9 @@ function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }
   const date = new Date(booking.date + 'T00:00')
   const [team1, team2] = teamsOf(booking)
   const score = booking.score?.sets?.length ? booking.score : null
-  const result = score ? scoreResult(score.sets) : null
-  const resultText = result?.draw ? 'Draw' : !result?.winner ? '—'
+  const { pending, canConfirm, waitingTeams } = scoreConfirmState(booking, isMe)
+  const result = score && !pending ? scoreResult(score.sets) : null
+  const resultText = pending ? 'Pending' : result?.draw ? 'Draw' : !result?.winner ? '—'
     : myTeam ? (result.winner === myTeam ? 'Won' : 'Lost')
     : `Team ${result.winner} won`
   const cell = 'px-2 py-1.5 align-middle'
@@ -514,7 +608,8 @@ function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }
       <td className={`${cell} whitespace-nowrap`} style={{ fontVariantNumeric: 'tabular-nums' }}>
         {/* One box per set (Team 1 – Team 2). Dark = a set my team won, light = a set my team lost */}
         {score ? (
-          <span className="inline-flex items-center gap-0.5">
+          <>
+          <span className="inline-flex items-center gap-0.5" style={pending ? { opacity: 0.55 } : undefined}>
             {score.sets.map(([a, c], i) => {
               const won = myTeam ? (myTeam === 1 ? a > c : c > a) : null
               return (
@@ -527,11 +622,32 @@ function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }
               )
             })}
           </span>
+          {/* Score state under the boxes */}
+          {pending ? (
+            <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5 mt-0.5 max-w-[112px] whitespace-normal text-[10px] font-bold leading-tight" style={{ color: '#B45309' }}
+              title="At least one player from each team has to confirm the score (link sent by email)">
+              <span className="inline-flex items-center gap-1"><Clock size={10} strokeWidth={2.75} className="shrink-0" />
+                Waiting for {waitingText(waitingTeams)}</span>
+              {canConfirm && (
+                <button type="button" onClick={() => onConfirmScore(booking.id)}
+                  className="print:hidden inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-black"
+                  style={{ background: INK, color: 'white' }} title="The score is correct — confirm it">
+                  <Check size={10} strokeWidth={3} /> Confirm
+                </button>
+              )}
+            </span>
+          ) : (
+            <span className="flex items-center gap-0.5 mt-0.5 text-[10px] font-bold leading-tight" style={{ color: '#047857' }}
+              title="Confirmed by players of both teams">
+              <Check size={10} strokeWidth={3} /> Confirmed score
+            </span>
+          )}
+          </>
         ) : '—'}
       </td>
       {/* All games added up: won by my team / lost (Team 1's side if I didn't play) */}
       {(() => {
-        const g = score ? gamesFor(result, myTeam || 1) : null
+        const g = result ? gamesFor(result, myTeam || 1) : null
         return (
           <>
             <td className={`${cell} whitespace-nowrap text-center`} style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}
@@ -550,7 +666,8 @@ function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }
           </>
         )
       })()}
-      <td className={`${cell} whitespace-nowrap`} style={{ fontWeight: resultText === 'Won' ? 800 : 500 }}>{resultText}</td>
+      <td className={`${cell} whitespace-nowrap`} style={{ fontWeight: resultText === 'Won' ? 800 : 500, color: pending ? '#B45309' : undefined }}
+        title={pending ? 'The result counts once another player confirms the score' : undefined}>{resultText}</td>
       <td className={`${cell} whitespace-nowrap`} style={{ color: cancelled ? '#9CA3AF' : GRAY }}>
         {cancelled ? 'Cancelled' : isPast ? 'Played' : booking.paymentReceived ? 'Confirmed'
           : <span className="badge-pulse inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full" style={{ background: '#EA580C', color: 'white' }}

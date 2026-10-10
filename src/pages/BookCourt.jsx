@@ -444,7 +444,7 @@ export default function BookCourt() {
       navigate(location.pathname, { replace: true, state: null }) // a refresh won't try to replace it again
     }
 
-    // Email the confirmation to every registered player (runs in the background)
+    // Email every registered player: "in process" now, "confirmed" once the admin approves the payment (runs in the background)
     setEmailStatus({ sending: true })
     sendBookingEmailsApi({
       court: court?.name,
@@ -456,7 +456,7 @@ export default function BookCourt() {
         + (creditUse ? ` · Rs. ${creditUse.toLocaleString()} ${editing ? 'already paid' : 'paid from advance balance'}` : '')
         + (editing ? ' · booking changed' : ''),
       players: bookingPlayers(),
-    }).then(setEmailStatus)
+    }, result.booking?.id).then(setEmailStatus)
   }
 
 
@@ -495,7 +495,7 @@ export default function BookCourt() {
           ))}
         </div>
 
-        {/* Confirmation email status */}
+        {/* Booking email status */}
         {emailStatus && (
           <div className="rounded-xl px-4 py-3 text-left text-sm mb-6 flex gap-3"
             style={emailStatus.error
@@ -503,14 +503,14 @@ export default function BookCourt() {
               : { background: '#ECFDF5', border: '1px solid #A7F3D0', color: '#065F46' }}>
             <Mail size={16} className="shrink-0 mt-0.5" />
             <div className="min-w-0">
-              {emailStatus.sending && <p className="font-semibold">Sending confirmation emails to the players…</p>}
-              {emailStatus.error && <p className="font-semibold">Confirmation emails were not sent: {emailStatus.error}</p>}
+              {emailStatus.sending && <p className="font-semibold">Sending booking emails to the players…</p>}
+              {emailStatus.error && <p className="font-semibold">Booking emails were not sent: {emailStatus.error}</p>}
               {emailStatus.sent && (
                 <>
                   <p className="font-semibold">
                     {emailStatus.sent.length
-                      ? <>Confirmation email sent to <b>{emailStatus.sent.map(s => s.name).join(', ')}</b>.</>
-                      : 'No confirmation emails were sent.'}
+                      ? <>{emailStatus.stage === 'processing' ? '"Booking in process"' : '"Booking confirmed"'} email sent to <b>{emailStatus.sent.map(s => s.name).join(', ')}</b>.{emailStatus.stage === 'processing' && ' They will get a "confirmed" email once the club approves the payment.'}</>
+                      : 'No booking emails were sent.'}
                   </p>
                   {emailStatus.skipped?.length > 0 && (
                     <p className="text-xs mt-1" style={{ color: '#92400E' }}>

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import EmailNotice from '../components/EmailNotice'
 import { useSearchParams } from 'react-router-dom'
 import { getCourts, formatSlotRange, adminSlotsApi, adminSetStatusApi, adminDeleteSlotApi, adminSetPaymentApi } from '../store'
 import { Search, Trash2, CheckCircle, XCircle, SlidersHorizontal, Paperclip, ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -69,12 +70,15 @@ export default function AdminBookings() {
   }
   // Tick "Payment received" → Confirmed; untick → Processing
   const [savingPay, setSavingPay] = useState(null)
+  const [emailNote, setEmailNote] = useState(null)
+  const closeEmailNote = useCallback(() => setEmailNote(null), [])
   async function togglePayment(b) {
     setSavingPay(b.id)
     const r = await adminSetPaymentApi(b.id, !b.paymentReceived)
     setSavingPay(null)
     if (r.error) { alert(r.error); return }
     setBookings(list => list.map(x => (x.id === b.id ? r.booking : x)))
+    if (r.emails) setEmailNote({ slotRef: r.booking?.slotRef, ...r.emails }) // approving sends the "confirmed" email
   }
   async function remove(id) {
     if (!confirm('Delete this booking permanently?')) return
@@ -119,6 +123,7 @@ export default function AdminBookings() {
 
   return (
     <div className="space-y-5">
+      <EmailNotice note={emailNote} onClose={closeEmailNote} />
       <div>
         <h1 className="text-2xl font-black" style={{ color: NAVY }}>{view.label}</h1>
         <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{filtered.length} of {bookings.length} bookings</p>
