@@ -8,6 +8,8 @@ const defaultCourts = [
   { id: '2', name: 'Court 2', description: 'Indoor court with lighting', isActive: true },
 ]
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://padal-backend.vercel.app'
+
 export function getCourts() {
   const stored = localStorage.getItem(COURTS_KEY)
   if (!stored) {
@@ -78,10 +80,9 @@ export function bookingCost(start, hours, junior) {
   return { total: paidHours * RATE_PER_HOUR, freeHours, paidHours }
 }
 
-// Opening hours: 3pm to 12am (midnight). Change here and in server/index.js.
+// Opening hours: 3pm to 12am (midnight).
 export const OPEN_HOUR = 15
 export const CLOSE_HOUR = 24
-// Start hours of bookable 1-hour slots: 3pm … 11pm (last slot ends 12am)
 export const TIME_SLOTS = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => i + OPEN_HOUR)
 
 export function formatHour(h) {
@@ -90,32 +91,29 @@ export function formatHour(h) {
   return h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
 }
 
-// Short format: "7am", "12pm", "3pm"
 export function formatHourShort(h) {
   if (h === 0 || h === 24) return '12am'
   if (h === 12) return '12pm'
   return h < 12 ? `${h}am` : `${h - 12}pm`
 }
 
-// Range format: "7am–8am"
 export function formatSlotRange(startH, endH) {
   return `${formatHourShort(startH)}–${formatHourShort(endH)}`
 }
 
-
-// ── USER AUTH (MySQL database `padalcreate` via server/index.js) ──
+// ── USER AUTH ──
 const SESSION_KEY = 'padel_session'
 
 async function postJson(path, body) {
   try {
-    const res = await fetch(path, {
+    const fullUrl = path.startsWith('http') ? path : `${BACKEND_URL}${path}`
+    const res = await fetch(fullUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     const data = await res.json().catch(() => null)
-    // No JSON body = the dev proxy couldn't reach server/index.js
-    if (!data) return { error: 'Cannot reach the server. Start it with "npm run server".' }
+    if (!data) return { error: 'Cannot reach the server.' }
     if (!res.ok) return { ...data, error: data.error || 'Server error. Please try again.' }
     return data
   } catch {
@@ -129,27 +127,24 @@ async function authRequest(path, body) {
   return data
 }
 
-// Returns { members: [{ id, name, phone }] } on this membership number — or { error } if the check couldn't run
 export async function checkMembershipApi(membershipNo) {
   try {
-    const res = await fetch(`/api/check-membership?no=${encodeURIComponent(membershipNo)}`)
+    const res = await fetch(`${BACKEND_URL}/api/check-membership?no=${encodeURIComponent(membershipNo)}`)
     return await res.json()
   } catch {
     return { error: 'Cannot reach the server.' }
   }
 }
 
-// Returns { exists: bool } — or { error } if the check couldn't run
 export async function checkEmailApi(email) {
   try {
-    const res = await fetch(`/api/check-email?email=${encodeURIComponent(email)}`)
+    const res = await fetch(`${BACKEND_URL}/api/check-email?email=${encodeURIComponent(email)}`)
     return await res.json()
   } catch {
     return { error: 'Cannot reach the server.' }
   }
 }
 
-// Returns { email: bool, sms: bool } — which channels the code was sent on
 export function sendOtpApi(form) {
   return postJson('/api/send-otp', form)
 }
@@ -162,7 +157,7 @@ export function loginApi(form) {
   return authRequest('/api/login', form)
 }
 
-// ── Bookings in MySQL (`slot` table) ──
+// ── Bookings ──
 function memberHeaders() {
   const user = getCurrentUser()
   return user?.token ? { 'x-user-id': user.id, 'x-user-token': user.token } : null
@@ -170,13 +165,14 @@ function memberHeaders() {
 
 async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
   try {
-    const res = await fetch(path, {
+    const fullUrl = path.startsWith('http') ? path : `${BACKEND_URL}${path}`
+    const res = await fetch(fullUrl, {
       method,
       headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined,
     })
     const data = await res.json().catch(() => null)
-    if (!data) return { error: 'Cannot reach the server. Start it with "npm run server".' }
+    if (!data) return { error: 'Cannot reach the server.' }
     if (!res.ok) return { ...data, error: data.error || 'Server error. Please try again.' }
     return data
   } catch {
@@ -186,50 +182,43 @@ async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
 
 const RELOGIN = { error: 'Please log out and log in again.', relogin: true }
 
-// Booked hours for a court on a date → { booked: [{ startHour, endHour }] }
 export function bookedSlotsApi(date, courtId) {
   return apiRequest(`/api/slots/booked?date=${date}&court=${encodeURIComponent(courtId)}`)
 }
 
-// Save a new booking → { booking } or { error } (409 if the time was just taken)
 export function createSlotApi(booking) {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots', { method: 'POST', body: booking, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest('/api/slots', { method: 'POST', body: booking, headers }) : Promise.resolve(RELOGIN)
 }
 
-// Reserve the next unique slot reference no. for a new booking → { slotRef: 'SLOT-087' }
 export function newSlotRefApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots/new-ref', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest('/api/slots/new-ref', { headers }) : Promise.resolve(RELOGIN)
 }
 
-// Change an upcoming booking (same body as createSlotApi) → { booking, balance } or { error }
 export function updateSlotApi(id, booking) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}`, { method: 'PUT', body: booking, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest(`/api/slots/${id}`, { method: 'PUT', body: booking, headers }) : Promise.resolve(RELOGIN)
 }
 
-// Bookings I made or play in → { bookings }
 export function mySlotsApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/slots/mine', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest('/api/slots/mine', { headers }) : Promise.resolve(RELOGIN)
 }
 
 export function cancelSlotApi(id) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}/cancel`, { method: 'POST', body: {}, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest(`/api/slots/${id}/cancel`, { method: 'POST', body: {}, headers }) : Promise.resolve(RELOGIN)
 }
 
-// Advance balance from cancelled bookings → { balance, history: [{ amount, reason, created_at }] }
 export function creditApi() {
   const headers = memberHeaders()
-  return headers ? apiRequest('/api/credit', { headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest('/api/credit', { headers }) : Promise.resolve(RELOGIN)
 }
 
-// sets: [[6,4],[3,6]] or null to clear
 export function scoreSlotApi(id, sets) {
   const headers = memberHeaders()
-  return headers ? apiRequest(`/api/slots/${id}/score`, { method: 'POST', body: { sets }, headers }) : Promise.resolve(RELOGIN) // always a promise, so callers can .then() it
+  return headers ? apiRequest(`/api/slots/${id}/score`, { method: 'POST', body: { sets }, headers }) : Promise.resolve(RELOGIN)
 }
 
 // ── Admin ──
@@ -250,7 +239,6 @@ export function adminLogout() {
   sessionStorage.removeItem('padel_admin')
 }
 
-// Events & tournaments
 export const eventsApi = () => apiRequest('/api/events')
 export const adminEventsApi = () => apiRequest('/api/admin/events', { headers: adminHeaders() })
 export const adminSaveEventApi = ev => ev.id
@@ -263,26 +251,23 @@ export const adminSetStatusApi = (id, status) => apiRequest(`/api/admin/slots/${
 export const adminSetPaymentApi = (id, received) => apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() })
 export const adminDeleteSlotApi = id => apiRequest(`/api/admin/slots/${id}`, { method: 'DELETE', headers: adminHeaders() })
 
-// Email the booking confirmation to all registered players → { sent: [{ name }], skipped: [{ name, reason }] }
 export async function sendBookingEmailsApi(booking) {
   const user = getCurrentUser()
-  if (!user?.token) return { error: 'Please log out and log in again so confirmation emails can be sent.', relogin: true }
+  if (!user?.token) return { error: 'Please log out and log in again.', relogin: true }
   return postJson('/api/booking-confirmation', { id: user.id, token: user.token, booking })
 }
 
-// Upload a deposit slip (data URL) → { path, name, type } or { error }
 export async function uploadSlipApi(file, name) {
   const user = getCurrentUser()
-  if (!user?.token) return { error: 'Please log out and log in again to attach a deposit slip.', relogin: true }
+  if (!user?.token) return { error: 'Please log out and log in again.', relogin: true }
   return postJson('/api/deposit-slip', { id: user.id, token: user.token, file, name })
 }
 
-// Search registered members by name or membership no. (field: 'name' | 'cm') → { members: [{ id, name, membershipNo, picture }] }
 export async function searchMembersApi(q, field) {
   const user = getCurrentUser()
   if (!user?.token) return { members: [], relogin: true }
   try {
-    const res = await fetch(`/api/members/search?field=${field}&q=${encodeURIComponent(q)}`, {
+    const res = await fetch(`${BACKEND_URL}/api/members/search?field=${field}&q=${encodeURIComponent(q)}`, {
       headers: { 'x-user-id': user.id, 'x-user-token': user.token },
     })
     return await res.json()
@@ -291,10 +276,9 @@ export async function searchMembersApi(q, field) {
   }
 }
 
-// Change (data URL) or remove (null) the logged-in user's picture; updates the saved session
 export async function updatePictureApi(picture) {
   const user = getCurrentUser()
-  if (!user?.token) return { error: 'Please log out and log in again to change your picture.', relogin: true }
+  if (!user?.token) return { error: 'Please log out and log in again.', relogin: true }
   return authRequest('/api/profile/picture', { id: user.id, token: user.token, picture })
 }
 
