@@ -38,17 +38,40 @@ const SLIPS_DIR = path.join(UPLOADS_DIR, 'slips')
 const MAX_PICTURE_BYTES = 2 * 1024 * 1024
 const PICTURE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
 const NO_ACCOUNT = 'No account found with this email. Please sign up first, then sign in.'
-// Gmail SMTP — SMTP_PASS must be a Gmail App Password, not the normal password
+// Gmail SMTP — SMTP_PASS must be a Gmail App Password, not the normal password.
+// Short timeouts so a blocked SMTP port fails in seconds instead of hanging for 2 minutes.
 const mailer = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: Number(process.env.SMTP_PORT || 465),
   secure: true,
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 20000,
 })
+const MAIL_FROM_NAME = 'NNG Trust Padel'
+const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER
+
+// Sends one email. Render's free plan blocks SMTP, so when BREVO_API_KEY is set the email goes
+// through Brevo's HTTPS API instead (brevo.com, free 300/day; MAIL_FROM must be a verified sender).
+async function sendMail({ to, subject, html, text }) {
+  if (!process.env.BREVO_API_KEY)
+    return mailer.sendMail({ from: `"${MAIL_FROM_NAME}" <${MAIL_FROM}>`, to, subject, html, text })
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      sender: { name: MAIL_FROM_NAME, email: MAIL_FROM },
+      to: [{ email: to }],
+      subject,
+      ...(html && { htmlContent: html }),
+      textContent: text,
+    }),
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!res.ok) throw new Error(`Brevo ${res.status}: ${await res.text()}`)
+}
 
 async function sendEmail(to, code) {
-  await mailer.sendMail({
-    from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`,
+  await sendMail({
     to,
     subject: `Your verification code: ${code}`,
     text: `Your NNG Trust verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
@@ -58,6 +81,7 @@ async function sendEmail(to, code) {
 // Twilio REST API — no SDK needed
 async function sendSms(to, code) {
   const sid = process.env.TWILIO_ACCOUNT_SID
+  if (!sid || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM) throw new Error('Twilio is not set up')
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {
@@ -475,7 +499,7 @@ async function emailBookingPlayers(booking, booker, stage) {
   }
   const results = await Promise.allSettled(recipients.map(r => {
     const { html, text, subject } = bookingEmail(r, booking, booker?.full_name || booking.players[0]?.name || '—', stage)
-    return mailer.sendMail({ from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`, to: r.email, subject, html, text })
+    return sendMail({ to: r.email, subject, html, text })
   }))
   const sent = []
   results.forEach((r, i) => {
@@ -1062,7 +1086,7 @@ async function emailScoreConfirm(row, byNo, baseUrl) {
     const link = `${baseUrl}/api/score/confirm?s=${row.id}&p=${p.n}&t=${scoreLinkToken(row.id, p.n, row.score)}`
     const { html, text, subject } = scoreEmail({ name: rec.full_name }, d, enteredBy, sets, link)
     try {
-      await mailer.sendMail({ from: `"NNG Trust Padel" <${process.env.SMTP_USER}>`, to: rec.email_address, subject, html, text })
+      await sendMail({ to: rec.email_address, subject, html, text })
       sent.push({ name: rec.full_name })
     } catch (err) { console.error('Score email failed:', rec.email_address, err.message); skipped.push({ name: rec.full_name, reason: 'email could not be sent' }) }
   }
