@@ -8,7 +8,9 @@ const defaultCourts = [
   { id: '2', name: 'Court 2', description: 'Indoor court with lighting', isActive: true },
 ]
 
-const BACKEND_URL = 'https://padal-backend.vercel.app'
+// Empty = call /api on the website's own address. Locally Vite passes it to the backend (vite.config.js);
+// on Vercel, vercel.json passes it to the Render backend. Change the backend address in vercel.json only.
+const BACKEND_URL = ''
 
 export function getCourts() {
   const stored = localStorage.getItem(COURTS_KEY)
