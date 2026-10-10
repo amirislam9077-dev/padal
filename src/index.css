@@ -4,12 +4,43 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Red Hat Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: #F1F4F8;
   color: #1B2E4B;
 }
 
-input, select, button { font-family: inherit; }
+input, select, button, textarea { font-family: inherit; }
+
+/* ── Dark "OneText" theme (header, Home, footer): near-black navy, royal blue, red / orange / yellow accents ── */
+:root {
+  --ot-bg: #070B18; --ot-surface: #0E1220; --ot-card: #141927; --ot-line: rgba(255, 255, 255, 0.09);
+  --ot-blue: #2F6BFF; --ot-blue-deep: #1438B8; --ot-red: #FF4D2E; --ot-orange: #FF8A1F; --ot-yellow: #FFC53D;
+  --ot-text: #F4F6FB; --ot-muted: #9AA3B5;
+}
+/* Solid blue button ("Test our AI") */
+.ot-btn { cursor: pointer; transition: background-color 0.2s ease, transform 0.2s var(--ease-out), box-shadow 0.2s ease; }
+.ot-btn:hover { background-color: #4A80FF !important; transform: translateY(-2px); box-shadow: 0 10px 24px -8px rgba(47, 107, 255, 0.7); }
+/* White outline button ("Get started") */
+.ot-outline { cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s var(--ease-out); }
+.ot-outline:hover { background-color: rgba(255, 255, 255, 0.1) !important; transform: translateY(-2px); }
+/* Menu inside a grey pill */
+.ot-navlink { transition: background-color 0.2s ease, color 0.2s ease; }
+.ot-navlink:hover { background-color: rgba(255, 255, 255, 0.1); color: #FFFFFF !important; }
+/* Logo: white box with blue letters and a small speech-bubble tail */
+.ot-logo { position: relative; }
+.ot-logo::after {
+  content: ''; position: absolute; left: 60%; bottom: -5px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #FFFFFF;
+}
+/* Dark cards that lift slightly on hover */
+.ot-card { transition: transform 0.25s var(--ease-out), border-color 0.25s ease, box-shadow 0.25s ease; }
+.ot-card:hover { transform: translateY(-3px); border-color: rgba(47, 107, 255, 0.45) !important; box-shadow: 0 18px 40px -18px rgba(47, 107, 255, 0.45); }
+/* Floating chat bubbles over the hero art */
+@keyframes otFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.ot-float { animation: otFloat 5s ease-in-out infinite; }
+@keyframes otSpin { to { transform: rotate(360deg); } }
+.ot-spin { animation: otSpin 40s linear infinite; transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .ot-float, .ot-spin { animation: none; } }
 
 /* iPhone Safari zooms in when a field's text is under 16px — keep it at 16px on phones */
 @media (max-width: 640px) {

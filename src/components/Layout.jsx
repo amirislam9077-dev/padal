@@ -1,25 +1,35 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { Calendar, BookOpen, Home, Shield, MapPin, Phone, MessageSquare, LogOut, ChevronDown, Camera, Trash2 } from 'lucide-react'
+import { Calendar, BookOpen, Home, Shield, MapPin, Phone, MessageSquare, LogOut, ChevronDown, Camera, Trash2, ArrowRight } from 'lucide-react'
 import { getCurrentUser, logoutUser, updatePictureApi } from '../store'
 
 const NAVY = '#1B2E4B'
-const NAVY2 = '#243C60'
+// Dark "OneText" theme for the header and footer
+const OT_BG = '#070B18'
+const OT_BLUE = '#2F6BFF'
+const OT_LINE = 'rgba(255,255,255,0.09)'
+
+// White logo box with blue letters and a speech-bubble tail (like the OneText logo)
+export function OtLogo({ size = 40 }) {
+  return (
+    <div className="ot-logo rounded-lg flex items-center justify-center font-black shrink-0"
+      style={{ width: size, height: size * 0.9, background: '#FFFFFF', color: OT_BLUE, fontSize: size * 0.38, letterSpacing: '-0.5px' }}>NN</div>
+  )
+}
 
 function SiteFooter() {
   return (
-    <footer style={{ background: '#0D1B2A' }}>
+    <footer style={{ background: '#05070F', borderTop: `1px solid ${OT_LINE}` }}>
       {/* Main row */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-wrap items-center gap-x-6 gap-y-5 justify-between"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        style={{ borderBottom: `1px solid ${OT_LINE}` }}>
 
         {/* Logo + name */}
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
-            style={{ background: 'white', color: NAVY }}>NN</div>
+          <OtLogo size={42} />
           <div>
-            <p className="font-black text-white text-sm leading-tight">North Nazimabad</p>
-            <p className="text-xs font-semibold" style={{ color: '#4A6FA5' }}>Gymkhana Trust</p>
+            <p className="font-bold text-white text-sm leading-tight">North Nazimabad</p>
+            <p className="text-xs font-semibold" style={{ color: '#7EA2FF' }}>Gymkhana Trust</p>
           </div>
         </div>
 
@@ -29,21 +39,21 @@ function SiteFooter() {
           {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ['/admin', 'Admin', true]].map(([to, label, phoneOnly]) => (
             <Link key={to} to={to}
               className={`${phoneOnly ? 'sm:hidden ' : ''}text-sm font-medium whitespace-nowrap transition hover:text-white`}
-              style={{ color: 'rgba(255,255,255,0.45)' }}>
+              style={{ color: '#9AA3B5' }}>
               {label}
             </Link>
           ))}
         </div>
 
         {/* Phone */}
-        <div className="flex items-center gap-2 text-sm" style={{ color: 'rgba(255,255,255,0.55)' }}>
-          <Phone size={14} style={{ color: '#4A6FA5' }} />
+        <div className="flex items-center gap-2 text-sm" style={{ color: '#C9CFDB' }}>
+          <Phone size={14} style={{ color: OT_BLUE }} />
           <span className="font-semibold">+92 21 0000 0000</span>
         </div>
 
         {/* Address */}
-        <div className="flex items-center gap-2 text-sm" style={{ color: 'rgba(255,255,255,0.45)', maxWidth: '260px' }}>
-          <MapPin size={14} style={{ color: '#4A6FA5', flexShrink: 0 }} />
+        <div className="flex items-center gap-2 text-sm" style={{ color: '#9AA3B5', maxWidth: '260px' }}>
+          <MapPin size={14} style={{ color: OT_BLUE, flexShrink: 0 }} />
           North Nazimabad, Karachi, Pakistan
         </div>
 
@@ -78,10 +88,10 @@ function SiteFooter() {
 
       {/* Bottom bar */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
+        <p className="text-xs" style={{ color: '#5E6678' }}>
           © 2026 North Nazimabad Gymkhana Trust. All rights reserved.
         </p>
-        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.15)' }}>
+        <p className="text-xs" style={{ color: '#4A5163' }}>
           Padel Court Booking System
         </p>
       </div>
@@ -162,7 +172,7 @@ function ProfileMenu({ user, onLogout, onUserChange }) {
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(o => !o)}
         className="btn-ghost flex items-center gap-2.5 pl-1 pr-2 sm:pr-3.5 py-1 rounded-full"
-        style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.22)', color: 'white', overflow: 'visible' }}
+        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', color: 'white', overflow: 'visible' }}
         aria-label="Profile menu" aria-expanded={open}>
         <Avatar user={user} size={34} online />
         <span className="hidden sm:block text-sm font-bold max-w-[110px] truncate">{user.name.split(' ')[0]}</span>
@@ -254,32 +264,32 @@ export default function Layout() {
   ]
 
   return (
-    <div style={{ background: '#F1F4F8', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: isHome ? OT_BG : '#F1F4F8', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* ── HEADER ── */}
-      <header className="sticky top-0 z-40" style={{ background: NAVY, boxShadow: '0 2px 16px rgba(10,22,40,0.35)' }}>
+      {/* Dark header like the OneText design: logo box, menu in a grey pill, Login + outlined button */}
+      <header className="sticky top-0 z-40" style={{ background: OT_BG, borderBottom: `1px solid ${OT_LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
           <Link to="/" className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-black text-sm shadow shrink-0"
-              style={{ background: '#FFFFFF', color: NAVY }}>NN</div>
+            <OtLogo size={40} />
             <div className="min-w-0">
-              <p className="font-black text-sm text-white leading-tight truncate">
+              <p className="font-bold text-sm text-white leading-tight truncate">
                 {/* Short title where space is tight: phones, and laptops where the full menu shows */}
                 <span className="sm:hidden lg:inline xl:hidden">NNG Trust</span>
                 <span className="hidden sm:inline lg:hidden xl:inline">North Nazimabad Gymkhana Trust</span>
               </p>
-              <p className="text-xs truncate" style={{ color: '#6B8CAE' }}>Where Champions Play</p>
+              <p className="text-xs truncate" style={{ color: '#9AA3B5' }}>Where Champions Play</p>
             </div>
           </Link>
 
           {/* Full menu only on wide screens; phones and tablets use the tab bar below */}
-          <nav className="hidden lg:flex items-center gap-1">
-            {navLinks.map(({ to, label, icon: Icon }) => (
-              <Link key={to} to={to}
-                className="nav-link nav-underline flex items-center gap-1.5 px-3 xl:px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap"
+          <nav className="hidden lg:flex items-center gap-0.5 p-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid ${OT_LINE}` }}>
+            {navLinks.map(({ to, label }) => (
+              <Link key={to} to={to} aria-current={pathname === to ? 'page' : undefined}
+                className="ot-navlink px-3 xl:px-4 py-1.5 rounded-md text-sm font-medium whitespace-nowrap"
                 style={pathname === to
-                  ? { background: 'rgba(255,255,255,0.12)', color: 'white' }
-                  : { color: 'rgba(255,255,255,0.5)' }}>
-                <Icon size={14} />{label}
+                  ? { background: 'rgba(255,255,255,0.16)', color: 'white' }
+                  : { color: 'rgba(255,255,255,0.78)' }}>
+                {label}
               </Link>
             ))}
           </nav>
@@ -288,21 +298,21 @@ export default function Layout() {
           <div className="flex items-center gap-2 shrink-0">
             {!user && (
               <>
-                <Link to="/login"
-                  className="btn-ghost text-xs font-bold px-4 py-2 rounded-lg"
-                  style={{ color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                <Link to="/login" className="text-sm font-medium px-2 sm:px-3 py-2 rounded-lg hover:opacity-80" style={{ color: 'white' }}>
                   Login
                 </Link>
+                {/* Outlined button with an arrow in a white circle */}
                 <Link to="/signup"
-                  className="btn-light text-xs font-bold px-4 py-2 rounded-lg"
-                  style={{ background: 'white', color: NAVY }}>
+                  className="ot-outline inline-flex items-center gap-2 text-sm font-medium pl-3 sm:pl-4 pr-1.5 py-1.5 rounded-lg whitespace-nowrap"
+                  style={{ color: 'white', border: '1.5px solid rgba(255,255,255,0.85)' }}>
                   Sign Up
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'white', color: OT_BG }}><ArrowRight size={12} strokeWidth={2.75} /></span>
                 </Link>
               </>
             )}
             <Link to="/admin"
-              className="btn-ghost hidden sm:flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.06)', color: '#6B8CAE', border: '1px solid rgba(255,255,255,0.08)' }}>
+              className="ot-outline hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.06)', color: '#C9CFDB', border: `1px solid ${OT_LINE}` }}>
               <Shield size={12} /> Admin
             </Link>
             {/* Logged in: profile picture at the far right, opens the profile menu */}
@@ -312,14 +322,14 @@ export default function Layout() {
         </div>
 
         {/* Phone / tablet tab bar */}
-        <nav className="lg:hidden flex border-t" style={{ borderColor: 'rgba(255,255,255,0.06)', background: NAVY2 }}>
+        <nav className="lg:hidden flex border-t" style={{ borderColor: OT_LINE, background: '#0B0F1C' }}>
           {/* Admin tab only on phones — the header has no room for the Admin button there */}
           {[...navLinks, { to: '/admin', label: 'Admin', short: 'Admin', icon: Shield, phoneOnly: true }].map(({ to, label, short, icon: Icon, phoneHidden, phoneOnly }) => (
             <Link key={to} to={to} title={label}
               className={`nav-link flex-1 min-w-0 ${phoneHidden ? "hidden sm:flex" : phoneOnly ? "flex sm:hidden" : "flex"} flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 py-2.5 sm:py-3 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap overflow-hidden`}
               style={pathname === to
-                ? { borderColor: 'white', color: 'white' }
-                : { borderColor: 'transparent', color: 'rgba(255,255,255,0.4)' }}>
+                ? { borderColor: OT_BLUE, color: 'white' }
+                : { borderColor: 'transparent', color: '#8A93A6' }}>
               <Icon size={16} className="shrink-0" />
               <span className="sm:hidden truncate max-w-full">{short}</span>
               <span className="hidden sm:inline">{label}</span>
@@ -329,7 +339,7 @@ export default function Layout() {
       </header>
 
       {/* ── CONTENT ── */}
-      <main style={{ flex: 1, paddingBottom: '50px' }}>
+      <main style={{ flex: 1, paddingBottom: isHome ? 0 : '50px' /* Home ends with its own dark footer */ }}>
         <Outlet />
       </main>
 

@@ -37,7 +37,6 @@ const UPLOADS_DIR = path.join(import.meta.dirname, 'uploads')
 const SLIPS_DIR = path.join(UPLOADS_DIR, 'slips')
 const MAX_PICTURE_BYTES = 2 * 1024 * 1024
 const PICTURE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
-const EMAIL_TAKEN = 'An account with this email already exists. Please sign in instead.'
 const NO_ACCOUNT = 'No account found with this email. Please sign up first, then sign in.'
 // Gmail SMTP — SMTP_PASS must be a Gmail App Password, not the normal password
 const mailer = nodemailer.createTransport({
@@ -97,12 +96,13 @@ async function initDb() {
       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       full_name VARCHAR(150) NOT NULL,
       membership_no VARCHAR(20) NOT NULL, -- shared by family members
-      email_address VARCHAR(255) NOT NULL UNIQUE, -- one account per email
+      email_address VARCHAR(255) NOT NULL,        -- may be shared by family members
       phone_number VARCHAR(20) NOT NULL,          -- may be shared by family members
       picture VARCHAR(255) NULL,
       password_hash VARCHAR(255) NOT NULL,
       created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_member_name (membership_no, full_name) -- a name only once per membership
+      UNIQUE KEY uniq_member_name (membership_no, full_name), -- a name only once per membership
+      KEY idx_email (email_address)
     )
   `)
   // Advance balance: money from cancelled bookings, used on the next booking (+ added, − used)
@@ -283,8 +283,6 @@ app.post('/api/send-otp', async (req, res) => {
   const phone = toE164(body.phone)
 
   try {
-    const [existing] = await pool.query('SELECT 1 FROM padalcreate WHERE email_address = ?', [email])
-    if (existing.length) return res.status(409).json({ error: EMAIL_TAKEN })
     const taken = await nameTaken(body.membershipNo, body.name)
     if (taken) return res.status(409).json({ error: taken })
 
@@ -350,11 +348,7 @@ app.post('/api/signup', async (req, res) => {
     res.status(201).json({ user: toSession(rows[0]) })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json({
-        error: err.message.includes('uniq_member_name')
-          ? `${cleanName(name)} is already registered under ${membershipNo.trim()}. Please sign in instead.`
-          : EMAIL_TAKEN,
-      })
+      return res.status(409).json({ error: `${cleanName(name)} is already registered under ${membershipNo.trim()}. Please sign in instead.` })
     console.error(err)
     res.status(500).json({ error: 'Could not create account. Please try again.' })
   }
@@ -368,9 +362,10 @@ app.post('/api/login', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM padalcreate WHERE email_address = ?', [email.trim().toLowerCase()])
     if (!rows.length)
       return res.status(404).json({ error: NO_ACCOUNT, noAccount: true })
-    if (!(await bcrypt.compare(password, rows[0].password_hash)))
-      return res.status(401).json({ error: 'Incorrect password. Please try again.' })
-    res.json({ user: toSession(rows[0]) })
+    // Several accounts can share one email (family members): sign in to the one whose password matches
+    for (const row of rows)
+      if (await bcrypt.compare(password, row.password_hash)) return res.json({ user: toSession(row) })
+    res.status(401).json({ error: 'Incorrect password. Please try again.' })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not sign in. Please try again.' })
@@ -517,11 +512,11 @@ app.post('/api/booking-confirmation', async (req, res) => {
 
 // Search members for the booking form (players 2–4). Logged-in users only.
 // GET /api/members/search?q=ha&field=name|cm   headers: x-user-id, x-user-token
+// An empty q lists every registered member (shown when the box is clicked before typing)
 app.get('/api/members/search', async (req, res) => {
   if (!tokenValid(req.get('x-user-id'), req.get('x-user-token')))
     return res.status(401).json({ error: 'Please log in again.', relogin: true })
   const q = String(req.query.q || '').trim().replace(/\s+/g, ' ')
-  if (!q) return res.json({ members: [] })
   const like = '%' + q.replace(/[\\%_]/g, c => '\\' + c) + '%'
   const column = req.query.field === 'cm' ? 'membership_no' : 'full_name'
   try {
@@ -529,7 +524,7 @@ app.get('/api/members/search', async (req, res) => {
     const [rows] = await pool.query(
       `SELECT id, full_name, membership_no, picture FROM padalcreate
        WHERE ${column} LIKE ?
-       ORDER BY (${column} LIKE ?) DESC, ${column}, full_name LIMIT 8`,
+       ORDER BY (${column} LIKE ?) DESC, ${column}, full_name LIMIT ${q ? 20 : 500}`,
       [like, like.slice(1)])
     res.json({ members: rows.map(r => ({ id: String(r.id), name: r.full_name, membershipNo: r.membership_no, picture: r.picture })) })
   } catch (err) {

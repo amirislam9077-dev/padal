@@ -22,8 +22,13 @@ const TYPE = {
   event: { label: 'Event', icon: PartyPopper, color: '#4A6FA5', bg: '#E3EAF4' },
 }
 
+// Colours for the light page and for the dark "OneText" Home page
+const LIGHT = { section: 'white', line: BORDER, kicker: '#6B8CAE', title: NAVY, sub: '#64748B', card: '#FBFCFE', dateBg: NAVY, dateSub: '#8FA9C8', text: NAVY, muted: '#64748B', faint: LGRAY, split: '#EEF2F7' }
+const DARK = { section: '#070B18', line: 'rgba(255,255,255,0.09)', kicker: '#7EA2FF', title: '#F4F6FB', sub: '#9AA3B5', card: '#141927', dateBg: '#2F6BFF', dateSub: 'rgba(255,255,255,0.75)', text: '#F4F6FB', muted: '#9AA3B5', faint: '#6F778A', split: 'rgba(255,255,255,0.09)' }
+
 // Upcoming events & tournaments (from MySQL `events`); hidden when there are none
-export default function EventsSection() {
+export default function EventsSection({ dark = false }) {
+  const t = dark ? DARK : LIGHT
   const [events, setEvents] = useState(null)
 
   useEffect(() => {
@@ -35,12 +40,12 @@ export default function EventsSection() {
   if (!events?.length) return null
 
   return (
-    <section style={{ background: 'white', borderTop: `1px solid ${BORDER}` }}>
+    <section style={{ background: t.section, borderTop: `1px solid ${t.line}` }}>
       <div className="max-w-6xl mx-auto px-6 py-9">
         <div className="text-center mb-6">
-          <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: '#6B8CAE' }}>What's On</p>
-          <h2 className="text-2xl font-black" style={{ color: NAVY }}>Upcoming Events &amp; Tournaments</h2>
-          <p className="mt-1 text-sm" style={{ color: '#64748B' }}>Compete, socialise and meet other members on court</p>
+          <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: t.kicker }}>What's On</p>
+          <h2 className="text-2xl font-black" style={{ color: t.title }}>Upcoming Events &amp; Tournaments</h2>
+          <p className="mt-1 text-sm" style={{ color: t.sub }}>Compete, socialise and meet other members on court</p>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -52,12 +57,12 @@ export default function EventsSection() {
             const full = ev.status === 'full'
             return (
               <div key={ev.id} className="flex rounded-2xl overflow-hidden"
-                style={{ border: `1px solid ${BORDER}`, background: '#FBFCFE', boxShadow: '0 1px 6px rgba(27,46,75,0.06)' }}>
+                style={{ border: `1px solid ${t.line}`, background: t.card, boxShadow: dark ? 'none' : '0 1px 6px rgba(27,46,75,0.06)' }}>
                 {/* Date block */}
-                <div className="w-20 shrink-0 flex flex-col items-center justify-center text-white py-3" style={{ background: NAVY }}>
-                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#8FA9C8' }}>{format(date, 'MMM')}</span>
+                <div className="w-20 shrink-0 flex flex-col items-center justify-center text-white py-3" style={{ background: t.dateBg }}>
+                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: t.dateSub }}>{format(date, 'MMM')}</span>
                   <span className="text-3xl font-black leading-none my-0.5">{format(date, 'd')}</span>
-                  <span className="text-[10px] font-bold uppercase" style={{ color: '#8FA9C8' }}>{format(date, 'EEE')}</span>
+                  <span className="text-[10px] font-bold uppercase" style={{ color: t.dateSub }}>{format(date, 'EEE')}</span>
                 </div>
 
                 <div className="flex-1 min-w-0 p-3">
@@ -71,18 +76,18 @@ export default function EventsSection() {
                       {full ? 'Full' : 'Open'}
                     </span>
                   </div>
-                  <p className="font-black leading-snug" style={{ color: NAVY }}>{ev.title}</p>
-                  <p className="text-xs mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: '#64748B' }}>
+                  <p className="font-black leading-snug" style={{ color: t.text }}>{ev.title}</p>
+                  <p className="text-xs mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: t.muted }}>
                     {time && <span className="flex items-center gap-1"><Clock size={11} />{time}</span>}
                     {ev.venue && <span className="flex items-center gap-1"><MapPin size={11} />{ev.venue}</span>}
                   </p>
                   {ev.description && (
-                    <p className="text-xs mt-1.5 leading-relaxed" style={{ color: LGRAY, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <p className="text-xs mt-1.5 leading-relaxed" style={{ color: t.faint, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {ev.description}
                     </p>
                   )}
                   {(ev.entryFee != null || ev.maxTeams) && (
-                    <p className="text-xs mt-2 pt-2 flex flex-wrap gap-x-3 font-semibold" style={{ color: NAVY, borderTop: '1px solid #EEF2F7' }}>
+                    <p className="text-xs mt-2 pt-2 flex flex-wrap gap-x-3 font-semibold" style={{ color: t.text, borderTop: `1px solid ${t.split}` }}>
                       {ev.entryFee != null && (
                         <span className="flex items-center gap-1"><Ticket size={11} />{ev.entryFee ? `Rs. ${ev.entryFee.toLocaleString()} / team` : 'Free entry'}</span>
                       )}
@@ -95,7 +100,7 @@ export default function EventsSection() {
           })}
         </div>
 
-        <p className="text-center text-xs mt-4" style={{ color: LGRAY }}>
+        <p className="text-center text-xs mt-4" style={{ color: t.faint }}>
           To enter an event, please contact the Trust office or speak to the front desk.
         </p>
       </div>

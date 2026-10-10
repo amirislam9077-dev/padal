@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import LoginRequired from '../components/LoginRequired'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark } from 'lucide-react'
+import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark, ChevronDown, Search } from 'lucide-react'
 import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
 import { format, addDays } from 'date-fns'
 
@@ -114,6 +114,121 @@ function PlayerAvatar({ player, size = 32 }) {
 const sameMember = (player, m) =>
   player.name.trim().toLowerCase() === m.name.toLowerCase() && player.cm.trim().toUpperCase() === m.membershipNo
 
+// Combo box: shows the chosen member's full name; opens a panel with a search box and the list of
+// every registered member (filtered as you type). "None" clears the player.
+function MemberCombo({ value, onPick, placeholder, icon, exclude, style }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [active, setActive] = useState(0)
+  const box = useRef(null)
+  const listRef = useRef(null)
+  const seq = useRef(0)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  // Load the members list (empty text = everyone), waiting a moment while typing
+  function load(q, delay) {
+    clearTimeout(timer.current)
+    const mine = ++seq.current
+    setLoading(true)
+    timer.current = setTimeout(async () => {
+      const r = await searchMembersApi(q.trim(), 'name')
+      if (mine !== seq.current) return // a newer search is on its way
+      setResults((r.members || []).filter(m => !exclude.some(p => sameMember(p, m))))
+      setActive(0)
+      setLoading(false)
+    }, delay)
+  }
+
+  // Close when clicking anywhere outside the combo box
+  useEffect(() => {
+    if (!open) return
+    const close = e => { if (!box.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  // Keep the highlighted row in view while using the arrow keys
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
+  function toggle() {
+    if (!open) { setQuery(''); setResults([]); load('', 0) }
+    setOpen(!open)
+  }
+
+  function pick(m) {
+    setOpen(false)
+    onPick(m)
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); return }
+    if (!results.length) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => (i + 1) % results.length) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => (i - 1 + results.length) % results.length) }
+    else if (e.key === 'Enter') { e.preventDefault(); pick(results[active]) }
+  }
+
+  return (
+    <div className="relative" ref={box}>
+      <span className="pointer-events-none">{icon}</span>
+      <button type="button" onClick={toggle} aria-haspopup="listbox" aria-expanded={open}
+        className="w-full text-left truncate"
+        style={{ ...style, paddingRight: '30px', cursor: 'pointer', color: value ? NAVY : LGRAY, textDecoration: 'none' }}>
+        {value || placeholder}
+      </button>
+      <ChevronDown size={15} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none transition-transform"
+        style={{ color: LGRAY, transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)` }} />
+      {open && (
+        <div className="absolute left-0 mt-1 z-30 rounded-xl overflow-hidden"
+          style={{ top: '100%', width: 'max(100%, 260px)', background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 12px 28px rgba(27,46,75,0.18)' }}>
+          <div className="relative p-2" style={{ borderBottom: `1px solid ${BORDER}` }}>
+            <Search size={13} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
+            <input type="text" autoFocus value={query} placeholder="Search full name…" autoComplete="off"
+              onChange={e => { setQuery(e.target.value); load(e.target.value, 200) }} onKeyDown={handleKey}
+              className="w-full rounded-lg text-sm outline-none"
+              style={{ padding: '7px 10px 7px 28px', border: `1px solid ${BORDER}`, background: '#F8FAFC', color: NAVY }} />
+          </div>
+          <div ref={listRef} className="max-h-60 overflow-y-auto py-1" role="listbox">
+            {value && !query && (
+              <button type="button" onClick={() => pick({ name: '', membershipNo: '', picture: null })}
+                className="btn-text w-full px-3 py-2 text-left text-xs italic"
+                style={{ color: LGRAY, background: 'white', textDecoration: 'none' }}>
+                — None (remove this player) —
+              </button>
+            )}
+            {loading && !results.length ? (
+              <p className="px-3 py-2.5 text-xs" style={{ color: LGRAY }}>Loading members…</p>
+            ) : results.length === 0 ? (
+              <p className="px-3 py-2.5 text-xs" style={{ color: LGRAY }}>
+                {query.trim() ? `No registered member matches “${query.trim()}”.` : 'No other registered members yet.'}
+              </p>
+            ) : results.map((m, i) => (
+              <button key={m.id} type="button" role="option" data-i={i} aria-selected={i === active}
+                onClick={() => pick(m)} onMouseEnter={() => setActive(i)}
+                className="btn-text w-full flex items-center gap-2.5 px-3 py-2 text-left"
+                style={{ background: i === active ? '#EEF2F7' : 'white', textDecoration: 'none' }}>
+                {m.picture
+                  ? <img src={m.picture} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                  : <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0"
+                      style={{ background: NAVY, color: 'white' }}>{m.name.charAt(0).toUpperCase()}</span>}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold truncate" style={{ color: NAVY }}>{m.name}</span>
+                  <span className="block text-xs" style={{ color: LGRAY }}>{m.membershipNo}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Text input that searches registered members (by name or CM No.) and shows a pick list
 function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, exclude, style }) {
   const [results, setResults] = useState([])
@@ -123,18 +238,22 @@ function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, 
   const seq = useRef(0)
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  function handleInput(v) {
-    onChange(v)
+  // Empty text lists every registered member, so clicking the box shows the full list
+  function search(v, delay) {
     clearTimeout(timer.current)
-    if (!v.trim()) { setResults([]); setOpen(false); return }
     const mine = ++seq.current
     timer.current = setTimeout(async () => {
-      const r = await searchMembersApi(v, field)
+      const r = await searchMembersApi(v.trim(), field)
       if (mine !== seq.current) return // a newer search is on its way
       setResults((r.members || []).filter(m => !exclude.some(p => sameMember(p, m))))
       setActive(0)
       setOpen(true)
-    }, 250)
+    }, delay)
+  }
+
+  function handleInput(v) {
+    onChange(v)
+    search(v, 250)
   }
 
   function pick(m) {
@@ -158,8 +277,8 @@ function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, 
       <input type="text" value={value} placeholder={placeholder} autoComplete="off"
         onChange={e => handleInput(field === 'cm' ? e.target.value.toUpperCase() : e.target.value)}
         onKeyDown={handleKey}
-        onFocus={() => results.length && setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onFocus={() => search(value, 0)}
+        onBlur={() => { seq.current++; clearTimeout(timer.current); setOpen(false) }}
         role="combobox" aria-expanded={open} aria-autocomplete="list"
         style={style} />
       {open && (
@@ -167,7 +286,9 @@ function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, 
           style={{ top: '100%', background: 'white', border: `1px solid ${BORDER}`, boxShadow: '0 12px 28px rgba(27,46,75,0.18)' }}
           role="listbox">
           {results.length === 0 ? (
-            <p className="px-3 py-2.5 text-xs" style={{ color: LGRAY }}>No registered member matches “{value.trim()}”.</p>
+            <p className="px-3 py-2.5 text-xs" style={{ color: LGRAY }}>
+              {value.trim() ? `No registered member matches “${value.trim()}”.` : 'No other registered members yet.'}
+            </p>
           ) : (
             <div className="max-h-52 overflow-y-auto py-1">
               {results.map((m, i) => (
@@ -877,9 +998,9 @@ export default function BookCourt() {
                           </>
                         ) : (
                           <>
-                            <MemberSearchInput field="name" value={p.name} icon={nameIcon} exclude={others}
-                              placeholder="Search name"
-                              onChange={v => updateExtra(p.n, 'name', v)} onPick={m => pickExtra(p.n, m)}
+                            <MemberCombo value={p.name} icon={nameIcon} exclude={others}
+                              placeholder="Select player"
+                              onPick={m => pickExtra(p.n, m)}
                               style={inputStyleWithIcon} />
                             <MemberSearchInput field="cm" value={p.cm} icon={cmIcon} exclude={others}
                               placeholder="or CM No."

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, Hash, ShieldCheck, RefreshCw, Camera, X } from 'lucide-react'
-import { sendOtpApi, signupApi, checkMembershipApi, checkEmailApi } from '../store'
+import { sendOtpApi, signupApi, checkMembershipApi } from '../store'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
@@ -181,22 +181,8 @@ export default function Signup() {
     setForm({ name: '', email: '', phone: '', membershipNo: digits, password: '', confirm: '' })
     setPicture(null)
     setMembers([])
-    setEmailTaken(false)
     setError('')
   }
-
-  // Email must be unique: check the database 500ms after typing stops
-  const [emailTaken, setEmailTaken] = useState(false)
-  useEffect(() => {
-    const email = form.email.trim()
-    if (!/^\S+@\S+\.\S+$/.test(email)) return
-    let cancelled = false
-    const t = setTimeout(async () => {
-      const result = await checkEmailApi(email)
-      if (!cancelled) setEmailTaken(result.exists === true)
-    }, 500)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [form.email])
 
   // A name may only be registered once per membership number (ignores case and extra spaces)
   const normName = s => s.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -245,9 +231,6 @@ export default function Signup() {
     }
     if (form.phone.length !== 10) {
       setError('Please enter a 10-digit mobile number after +92, e.g. 300 1234567.'); return
-    }
-    if (emailTaken) {
-      setError('An account with this email already exists. Please sign in instead.'); return
     }
     if (takenBy) {
       setError(`${takenBy.name} is already registered on ${MEMBERSHIP_PREFIX}${form.membershipNo}. Please sign in instead.`); return
@@ -429,15 +412,8 @@ export default function Signup() {
                 <div className="relative">
                   <Mail size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
                   <input type="email" name="email" placeholder="you@email.com"
-                    value={form.email} onChange={e => { setEmailTaken(false); handleChange(e) }} autoComplete="email"
-                    style={{ ...fieldStyle, ...(emailTaken && { borderColor: '#DC2626', background: '#FEF2F2' }) }} />
+                    value={form.email} onChange={handleChange} autoComplete="email" style={fieldStyle} />
                 </div>
-                {emailTaken && (
-                  <p className="text-xs mt-1" style={{ color: '#DC2626' }}>
-                    This email is already registered.{' '}
-                    <Link to="/login" className="link font-bold whitespace-nowrap" style={{ color: '#DC2626' }}>Sign in</Link>
-                  </p>
-                )}
               </div>
               <div>
                 <label style={labelStyle}>Phone Number *</label>
