@@ -422,9 +422,10 @@ export default function Home() {
           </div>
 
           {/* Nav */}
-          <div className="flex items-center gap-6">
-            {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints']].map(([to, label]) => (
-              <Link key={to} to={to} className="text-sm font-medium hover:text-white transition"
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            {/* Admin link only on phones (wider screens have the Admin button in the header) */}
+            {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ['/admin', 'Admin', true]].map(([to, label, phoneOnly]) => (
+              <Link key={to} to={to} className={`${phoneOnly ? 'sm:hidden ' : ''}text-sm font-medium whitespace-nowrap hover:text-white transition`}
                 style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</Link>
             ))}
           </div>

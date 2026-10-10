@@ -25,9 +25,10 @@ function SiteFooter() {
 
         {/* Nav links */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints']].map(([to, label]) => (
+          {/* Admin link only on phones (wider screens have the Admin button in the header) */}
+          {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ['/admin', 'Admin', true]].map(([to, label, phoneOnly]) => (
             <Link key={to} to={to}
-              className="text-sm font-medium whitespace-nowrap transition hover:text-white"
+              className={`${phoneOnly ? 'sm:hidden ' : ''}text-sm font-medium whitespace-nowrap transition hover:text-white`}
               style={{ color: 'rgba(255,255,255,0.45)' }}>
               {label}
             </Link>
@@ -312,9 +313,10 @@ export default function Layout() {
 
         {/* Phone / tablet tab bar */}
         <nav className="lg:hidden flex border-t" style={{ borderColor: 'rgba(255,255,255,0.06)', background: NAVY2 }}>
-          {navLinks.map(({ to, label, short, icon: Icon, phoneHidden }) => (
+          {/* Admin tab only on phones — the header has no room for the Admin button there */}
+          {[...navLinks, { to: '/admin', label: 'Admin', short: 'Admin', icon: Shield, phoneOnly: true }].map(({ to, label, short, icon: Icon, phoneHidden, phoneOnly }) => (
             <Link key={to} to={to} title={label}
-              className={`nav-link flex-1 min-w-0 ${phoneHidden ? "hidden sm:flex" : "flex"} flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 py-2.5 sm:py-3 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap overflow-hidden`}
+              className={`nav-link flex-1 min-w-0 ${phoneHidden ? "hidden sm:flex" : phoneOnly ? "flex sm:hidden" : "flex"} flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 py-2.5 sm:py-3 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap overflow-hidden`}
               style={pathname === to
                 ? { borderColor: 'white', color: 'white' }
                 : { borderColor: 'transparent', color: 'rgba(255,255,255,0.4)' }}>

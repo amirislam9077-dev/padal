@@ -459,10 +459,13 @@ function TeamCell({ players, isMe }) {
   return (
     <span>
       {players.map((p, i) => (
-        <span key={i} className="whitespace-nowrap" title={p.cmNo ? `${p.name} · ${p.cmNo}` : p.name}>
-          {i > 0 && ' & '}
-          <span style={{ fontWeight: isMe(p) ? 800 : 500, textDecoration: isMe(p) ? 'underline' : 'none' }}>{p.name}</span>
-          {isMe(p) && <span className="text-[11px]" style={{ color: GRAY }}> (you)</span>}
+        // a name never splits, but the second player may drop to the next line after "&"
+        <span key={i}>
+          {i > 0 && <span className="whitespace-nowrap"> &amp;</span>}{i > 0 && ' '}
+          <span className="whitespace-nowrap" title={p.cmNo ? `${p.name} · ${p.cmNo}` : p.name}>
+            <span style={{ fontWeight: isMe(p) ? 800 : 500, textDecoration: isMe(p) ? 'underline' : 'none' }}>{p.name}</span>
+            {isMe(p) && <span className="text-[11px]" style={{ color: GRAY }}> (you)</span>}
+          </span>
         </span>
       ))}
     </span>
@@ -509,7 +512,22 @@ function BookingRow({ booking, onCancel, onScore, today, isMe, myTeam, isOwner }
       <td className="px-0.5 py-2 align-middle text-[11px] font-black" style={{ color: GRAY }}>vs</td>
       <td className={cell}><TeamCell players={team2} isMe={isMe} /></td>
       <td className={`${cell} whitespace-nowrap`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {score ? score.sets.map(([a, c]) => `${a}-${c}`).join('  ') : '—'}
+        {/* One box per set (Team 1 – Team 2). Dark = a set my team won, light = a set my team lost */}
+        {score ? (
+          <span className="inline-flex items-center gap-0.5">
+            {score.sets.map(([a, c], i) => {
+              const won = myTeam ? (myTeam === 1 ? a > c : c > a) : null
+              return (
+                <span key={i} title={`Set ${i + 1}: Team 1 ${a} – ${c} Team 2${won == null ? '' : won ? ' (you won this set)' : ' (you lost this set)'}`}
+                  className="inline-block text-center text-[11px] font-bold px-1 py-px rounded leading-tight"
+                  style={won ? { background: INK, color: 'white', border: `1px solid ${INK}` }
+                    : { background: 'white', color: won === false ? GRAY : INK, border: `1px solid ${won === false ? '#D1D5DB' : INK}` }}>
+                  {a}–{c}
+                </span>
+              )
+            })}
+          </span>
+        ) : '—'}
       </td>
       {/* All games added up: won by my team / lost (Team 1's side if I didn't play) */}
       {(() => {
