@@ -248,6 +248,8 @@ export default function Layout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const isHome = pathname === '/'
+  // Pages on the dark site background (the rest use the light grey one)
+  const darkPage = isHome || pathname === '/admin'
   const user = getCurrentUser()
   const [, refresh] = useState(0) // re-read the session after the picture changes
 
@@ -264,7 +266,7 @@ export default function Layout() {
   ]
 
   return (
-    <div style={{ background: isHome ? OT_BG : '#F1F4F8', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: darkPage ? OT_BG : '#F1F4F8', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* ── HEADER ── */}
       {/* Dark header like the OneText design: logo box, menu in a grey pill, Login + outlined button */}
       <header className="sticky top-0 z-40" style={{ background: OT_BG, borderBottom: `1px solid ${OT_LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
@@ -339,7 +341,7 @@ export default function Layout() {
       </header>
 
       {/* ── CONTENT ── */}
-      <main style={{ flex: 1, paddingBottom: isHome ? 0 : '50px' /* Home ends with its own dark footer */ }}>
+      <main style={{ flex: 1, paddingBottom: darkPage ? 0 : '50px' /* Home ends with its own dark footer */ }}>
         <Outlet />
       </main>
 

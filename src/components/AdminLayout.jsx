@@ -2,8 +2,11 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText, TrendingUp, Receipt } from 'lucide-react'
 import { adminLogout, getCourts } from '../store'
 
-const NAVY = '#1B2E4B'
-const NAVY2 = '#243C60'
+// Same dark colours as the public site header (Layout.jsx)
+const NAVY = '#070B18'
+const NAVY2 = '#0B0F1C'
+const BLUE = '#2F6BFF'
+const LINE = 'rgba(255,255,255,0.09)'
 
 export default function AdminLayout() {
   const { pathname, search } = useLocation()
@@ -39,14 +42,14 @@ export default function AdminLayout() {
     <div className="min-h-screen flex" style={{ background: '#F1F4F8' }}>
       {/* Sidebar on wide screens; phones/tablets get the top bar below */}
       {/* Fits the window height and stays in place while the page scrolls (scrolls itself only on very short screens) */}
-      <aside className="hidden lg:flex print:hidden w-60 shrink-0 flex-col shadow-xl sticky top-0 h-screen" style={{ background: NAVY }}>
+      <aside className="hidden lg:flex print:hidden w-60 shrink-0 flex-col shadow-xl sticky top-0 h-screen" style={{ background: NAVY, borderRight: `1px solid ${LINE}` }}>
         <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shadow"
-              style={{ background: '#FFFFFF', color: NAVY }}>NN</div>
+              style={{ background: '#FFFFFF', color: BLUE }}>NN</div>
             <div>
               <p className="font-bold text-white text-sm">NNGT Admin</p>
-              <p className="text-xs" style={{ color: '#7A9CBD' }}>Padel Management</p>
+              <p className="text-xs" style={{ color: '#9AA3B5' }}>Padel Management</p>
             </div>
           </div>
         </div>
@@ -96,10 +99,10 @@ export default function AdminLayout() {
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
-                style={{ background: '#FFFFFF', color: NAVY }}>NN</div>
+                style={{ background: '#FFFFFF', color: BLUE }}>NN</div>
               <div className="min-w-0">
                 <p className="font-bold text-white text-sm truncate">NNGT Admin</p>
-                <p className="text-xs truncate" style={{ color: '#7A9CBD' }}>Padel Management</p>
+                <p className="text-xs truncate" style={{ color: '#9AA3B5' }}>Padel Management</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -128,9 +131,13 @@ export default function AdminLayout() {
           </nav>
         </div>
 
-        <header className="hidden lg:block print:hidden bg-white px-6 py-4" style={{ borderBottom: '1px solid #DDE3EC', boxShadow: '0 1px 4px rgba(27,46,75,0.06)' }}>
-          <p className="font-bold text-base" style={{ color: NAVY }}>North Nazimabad Gymkhana Trust</p>
-          <p className="text-xs" style={{ color: '#9EB0C5' }}>Admin Control Panel</p>
+        <header className="hidden lg:flex print:hidden items-center justify-between px-6 py-3.5 sticky top-0 z-30"
+          style={{ background: NAVY, borderBottom: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+          <div>
+            <p className="font-bold text-base text-white">North Nazimabad Gymkhana Trust</p>
+            <p className="text-xs" style={{ color: '#9AA3B5' }}>Admin Control Panel</p>
+          </div>
+          <span className="text-[11px] font-bold tracking-[0.18em] uppercase" style={{ color: '#7EA2FF' }}>Where Champions Play</span>
         </header>
         <main className="flex-1 p-4 sm:p-6 print:p-0 overflow-auto">
           <Outlet />

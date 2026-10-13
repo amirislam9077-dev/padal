@@ -43,10 +43,11 @@ export default function App() {
           <Route path="/complaints" element={<Complaints />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          {/* Admin login uses the site header + footer, like every public page */}
+          <Route path="/admin" element={<AdminLogin />} />
           <Route path="/forgot-user-id" element={<ForgotAccount mode="userid" key="userid" />} />
           <Route path="/forgot-password" element={<ForgotAccount mode="password" key="password" />} />
         </Route>
-        <Route path="/admin" element={<AdminLogin />} />
         <Route
           element={
             <AdminGuard>

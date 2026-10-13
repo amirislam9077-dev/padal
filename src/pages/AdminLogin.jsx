@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { Lock, Mail, Eye, EyeOff, Home, Calendar, BookOpen, MessageSquare, Shield } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Lock, Mail, Eye, EyeOff, Shield, AlertCircle, ArrowRight } from 'lucide-react'
 import { adminLoginApi } from '../store'
 
-const NAVY = '#1B2E4B'
-const NAVY2 = '#243C60'
+// Same colours as the public site (home page / header)
+const BG = '#070B18'
+const CARD = '#141927'
+const LINE = 'rgba(255,255,255,0.09)'
+const BLUE = '#2F6BFF'
+const MUTED = '#9AA3B5'
 
+const field = { width: '100%', borderRadius: '10px', padding: '11px 40px 11px 38px', fontSize: '14px', outline: 'none', color: 'white',
+  background: 'rgba(255,255,255,0.05)', border: `1.5px solid ${LINE}` }
+
+// Admin login — inside the site layout (same header + footer as the public pages)
 export default function AdminLogin() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -26,94 +34,63 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col"
-      style={{ background: `linear-gradient(135deg, ${NAVY} 0%, ${NAVY2} 100%)` }}>
-      <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 70% 30%, rgba(255,255,255,0.04) 0%, transparent 60%)' }} />
+    <div className="relative overflow-hidden flex items-center justify-center px-4 py-14" style={{ background: BG, minHeight: 'calc(100vh - 140px)' }}>
+      {/* Soft blue / orange glow, like the home page hero */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: 'radial-gradient(600px 300px at 25% 20%, rgba(47,107,255,0.18), transparent 70%), radial-gradient(500px 260px at 80% 85%, rgba(255,138,31,0.10), transparent 70%)' }} />
 
-      {/* ── HEADER ── */}
-      <header className="relative z-10 shrink-0" style={{ background: 'rgba(0,0,0,0.25)', borderBottom: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}>
-        <div className="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm"
-              style={{ background: 'white', color: NAVY }}>NN</div>
-            <div>
-              <p className="font-black text-sm text-white leading-tight">North Nazimabad Gymkhana Trust</p>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Where Champions Play</p>
-            </div>
-          </Link>
-
-          <nav className="hidden sm:flex items-center gap-1">
-            {[['/', 'Home', Home], ['/book', 'Padel Booking', Calendar], ['/my-bookings', 'My Bookings', BookOpen], ['/complaints', 'Complaints', MessageSquare]].map(([to, label, Icon]) => (
-              <Link key={to} to={to}
-                className="nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ color: 'rgba(255,255,255,0.5)' }}>
-                <Icon size={13} />{label}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg"
-            style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            <Shield size={12} /> Admin Access
+      <div className="relative w-full max-w-sm">
+        <div className="text-center mb-7">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg"
+            style={{ background: 'white', color: BLUE }}>
+            <span className="font-black text-xl">NN</span>
           </div>
-        </div>
-      </header>
-
-      <div className="relative flex-1 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl bg-white">
-            <span className="font-black text-xl" style={{ color: NAVY }}>NN</span>
-          </div>
-          <h1 className="text-2xl font-black text-white">Admin Panel</h1>
-          <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>North Nazimabad Gymkhana Trust</p>
+          <p className="text-[11px] font-bold tracking-[0.2em] uppercase mb-1.5" style={{ color: '#7EA2FF' }}>Admin access</p>
+          <h1 className="text-3xl font-black text-white tracking-tight">Admin Panel</h1>
+          <p className="text-sm mt-1" style={{ color: MUTED }}>North Nazimabad Gymkhana Trust</p>
         </div>
 
-        <div className="rounded-2xl p-7 shadow-2xl"
-          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="admin-email" className="block text-xs font-bold mb-2 uppercase tracking-widest"
-                style={{ color: 'rgba(255,255,255,0.45)' }}>Email ID</label>
-              <div className="relative">
-                <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(255,255,255,0.3)' }} />
-                <input id="admin-email" name="admin-email" type="email" placeholder="Enter admin email" autoComplete="off"
-                  value={email} onChange={e => { setEmail(e.target.value); setError('') }}
-                  className="admin-input w-full rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none text-white placeholder-gray-500"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)' }} />
-              </div>
+        <form onSubmit={handleSubmit} className="rounded-2xl p-6 space-y-4"
+          style={{ background: CARD, border: `1px solid ${LINE}`, boxShadow: '0 24px 60px -20px rgba(0,0,0,0.7)' }}>
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: MUTED }}>Email ID</label>
+            <div className="relative">
+              <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }} />
+              <input type="email" value={email} autoComplete="username" placeholder="admin@email.com"
+                onChange={e => { setEmail(e.target.value); setError('') }} style={field} />
             </div>
-            <div>
-              <label htmlFor="admin-password" className="block text-xs font-bold mb-2 uppercase tracking-widest"
-                style={{ color: 'rgba(255,255,255,0.45)' }}>Password</label>
-              <div className="relative">
-                <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(255,255,255,0.3)' }} />
-                <input id="admin-password" type={showPw ? 'text' : 'password'} placeholder="Enter admin password" autoComplete="current-password"
-                  value={password} onChange={e => { setPassword(e.target.value); setError('') }}
-                  className="admin-input w-full rounded-xl pl-10 pr-10 py-3 text-sm focus:outline-none text-white placeholder-gray-500"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)' }} />
-                <button type="button" onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2"
-                  style={{ color: 'rgba(255,255,255,0.3)' }}>
-                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
+          </div>
 
-            {error && (
-              <p className="text-xs px-3 py-2 rounded-lg" style={{ color: '#FCA5A5', background: 'rgba(220,38,38,0.12)' }}>
-                {error}
-              </p>
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: MUTED }}>Password</label>
+            <div className="relative">
+              <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }} />
+              <input type={showPw ? 'text' : 'password'} value={password} autoComplete="current-password" placeholder="Enter password"
+                onChange={e => { setPassword(e.target.value); setError('') }} style={field} />
+              <button type="button" onClick={() => setShowPw(p => !p)} title={showPw ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }}>
+                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <p className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg" style={{ color: '#FCA5A5', background: 'rgba(220,38,38,0.12)', border: '1px solid rgba(220,38,38,0.3)' }}>
+              <AlertCircle size={14} className="shrink-0" /> {error}
+            </p>
+          )}
+
+          <button type="submit" disabled={busy}
+            className="ot-btn w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg font-bold text-sm"
+            style={{ background: BLUE, color: 'white', boxShadow: '0 12px 30px -10px rgba(47,107,255,0.7)', opacity: busy ? 0.7 : 1 }}>
+            <Shield size={15} /> {busy ? 'Checking…' : 'Login to Admin Panel'}
+            {!busy && (
+              <span className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'white', color: BLUE }}>
+                <ArrowRight size={12} strokeWidth={2.75} />
+              </span>
             )}
-
-            <button type="submit" disabled={busy}
-              className="btn-light w-full py-3 rounded-xl font-black text-sm tracking-wide mt-1"
-              style={{ background: '#FFFFFF', color: NAVY, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', opacity: busy ? 0.7 : 1 }}>
-              {busy ? 'CHECKING…' : 'LOGIN TO ADMIN PANEL'}
-            </button>
-          </form>
-        </div>
-      </div>
+          </button>
+        </form>
       </div>
     </div>
   )
