@@ -260,15 +260,15 @@ export default function AdminMembers() {
 
         <div className="overflow-x-auto">
           {/* Fits the page width: fixed column widths, two lines per cell, long text cut short (full text on hover) */}
-          <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '820px' }}>
+          <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '720px' }}>
             <colgroup>
-              <col style={{ width: '22%' }} />{/* Member + User ID */}
+              <col style={{ width: '20%' }} />{/* Member + User ID */}
               <col style={{ width: '12%' }} />{/* Membership no. */}
-              <col style={{ width: '24%' }} />{/* Email + phone */}
-              <col style={{ width: '14%' }} />{/* Date of birth + age */}
-              <col style={{ width: '8%' }} />{/* Bookings */}
+              <col style={{ width: '22%' }} />{/* Email + phone */}
+              <col style={{ width: '13%' }} />{/* Date of birth + age */}
+              <col style={{ width: '7%' }} />{/* Bookings */}
               <col style={{ width: '10%' }} />{/* Signed up */}
-              <col className="print:hidden" style={{ width: '10%' }} />{/* Actions */}
+              <col className="print:hidden" style={{ width: '16%' }} />{/* Actions */}
             </colgroup>
             <thead style={{ background: '#F5F7FA' }}>
               <tr>{['Member', 'Membership No.', 'Contact', 'Date of birth', 'Bookings', 'Signed up', 'Actions'].map(h => h === 'Membership No.' ? (

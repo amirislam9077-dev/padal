@@ -207,6 +207,11 @@ export function bookedSlotsApi(date, courtId) {
   return apiRequest(`/api/slots/booked?date=${date}&court=${encodeURIComponent(courtId)}`, { headers: memberHeaders() || {} })
 }
 
+// Booked hours on all courts between two dates, for the "Balance Booking Slots" report
+export function slotAvailabilityApi(from, to) {
+  return apiRequest(`/api/slots/availability?from=${from}&to=${to}`)
+}
+
 // Reserve the picked time while booking (others see it as "processing"); call again to renew
 export function holdSlotApi(courtId, date, startHour, hours) {
   const headers = memberHeaders()

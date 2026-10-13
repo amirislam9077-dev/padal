@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import LoginRequired from '../components/LoginRequired'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark, ChevronDown, Search } from 'lucide-react'
+import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark, ChevronDown, Search, BarChart3 } from 'lucide-react'
 import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, isUnder18, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, holdSlotApi, releaseHoldApi, mySlotsApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
 import { format, addDays, startOfWeek } from 'date-fns'
+import BalanceSlotsReport from '../components/BalanceSlotsReport'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
@@ -471,6 +472,7 @@ export default function BookCourt() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
+  const [showBalance, setShowBalance] = useState(false) // "Balance Booking Slots" report
 
   // Booked hours for the chosen court + date come from MySQL (slot table); reloaded every
   // 10 seconds so a time another member has just picked shows as "processing"
@@ -754,6 +756,23 @@ export default function BookCourt() {
       </div>
 
     <div className="max-w-4xl mx-auto px-4 space-y-4 pt-4 pb-2">
+      {/* Report of the free slots still left to book, on every court */}
+      {step === 1 && (
+        <div className="flex justify-end">
+          <button type="button" onClick={() => setShowBalance(true)}
+            className="btn inline-flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-black"
+            style={{ background: 'white', color: '#047857', border: '2px solid #6EE7B7', boxShadow: '0 4px 12px rgba(4,120,87,0.12)' }}>
+            <BarChart3 size={16} /> Balance Booking Slots
+          </button>
+        </div>
+      )}
+      {showBalance && (
+        <BalanceSlotsReport courts={courts} onClose={() => setShowBalance(false)}
+          onPick={(dateKey, id) => {
+            setShowBalance(false); chooseCourt(id); chooseDate(dateKey)
+            setTimeout(() => timeSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150)
+          }} />
+      )}
       {/* Rebooking a cancelled booking */}
       {rebook && showRebookNote && (
         <div className="flex items-start gap-3 px-4 py-3 rounded-2xl text-sm"

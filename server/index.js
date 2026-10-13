@@ -939,6 +939,25 @@ app.get('/api/slots/booked', async (req, res) => {
   }
 })
 
+// Booked hours on every court between two dates (public: no names) — for the "Balance Booking Slots" report.
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD (at most 62 days) → { booked: [{ date, courtId, startHour, endHour }] }
+app.get('/api/slots/availability', async (req, res) => {
+  const { from, to } = req.query
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '') || from > to)
+    return res.status(400).json({ error: 'Please choose a valid date range.' })
+  if ((new Date(to) - new Date(from)) / 86400000 > 62) return res.status(400).json({ error: 'Please choose at most 2 months.' })
+  try {
+    const [rows] = await pool.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS d, court_id, time, end_time, hour FROM slot
+       WHERE date BETWEEN ? AND ? AND status <> 'cancelled'`, [from, to])
+    res.json({ booked: rows.map(r => ({ date: r.d, courtId: String(r.court_id), startHour: timeToHour(r.time),
+      endHour: timeToHour(r.end_time) ?? timeToHour(r.time) + (r.hour || 1) })) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load the slots.' })
+  }
+})
+
 // ── Slot holds ("processing") ──────────────────────────────────
 const HOLD_MINUTES = 5
 const PROCESSING = 'This time is in processing — another member is booking it right now. Please choose another time or try again in a few minutes.'

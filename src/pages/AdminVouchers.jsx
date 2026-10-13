@@ -111,7 +111,7 @@ function VoucherForm({ voucher, options, onAddOption, onSaved, onCancel }) {
         </span>
       </div>
 
-      <div className="px-5 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="px-4 sm:px-5 py-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <div>
           <label className={label} style={{ color: NAVY }}>Issue Date *</label>
           <input type="date" value={v.date} onChange={e => set('date', e.target.value)} style={input} />
@@ -134,7 +134,7 @@ function VoucherForm({ voucher, options, onAddOption, onSaved, onCancel }) {
         </div>
 
         {/* Payment: Cash or Cheque — a cheque needs its number and bank */}
-        <div className="col-span-2 md:col-span-1">
+        <div className="sm:col-span-2 md:col-span-1">
           <label className={label} style={{ color: NAVY }}>Payment by *</label>
           <div className="grid grid-cols-2 gap-2">
             {[['Cash', Banknote], ['Cheque', FileText]].map(([m, Icon]) => (
@@ -159,7 +159,7 @@ function VoucherForm({ voucher, options, onAddOption, onSaved, onCancel }) {
             <datalist id="voucher-banks">{BANKS.map(b => <option key={b} value={b} />)}</datalist>
           </div>
         </>}
-        <div className={cheque ? 'col-span-2 md:col-span-1' : 'col-span-2 md:col-span-3'}>
+        <div className={cheque ? 'sm:col-span-2 md:col-span-1' : 'sm:col-span-2 md:col-span-3'}>
           <label className={label} style={{ color: NAVY }}>Notes</label>
           <input value={v.notes} maxLength={255} placeholder={v.category === 'Salary' ? 'e.g. Salary for October 2026' : 'e.g. October bill'}
             onChange={e => set('notes', e.target.value)} style={input} />

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import EmailNotice from '../components/EmailNotice'
 import { useSearchParams } from 'react-router-dom'
 import { getCourts, formatSlotRange, adminSlotsApi, adminSetStatusApi, adminDeleteSlotApi, adminSetPaymentApi } from '../store'
-import { Search, Trash2, CheckCircle, XCircle, SlidersHorizontal, Paperclip, ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Trash2, CheckCircle, XCircle, SlidersHorizontal, Paperclip, ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
+import BalanceSlotsReport from '../components/BalanceSlotsReport'
 import { format } from 'date-fns'
 
 const NAVY = '#1B2E4B'
@@ -16,6 +17,7 @@ const inputStyle = { border: `1.5px solid ${BORDER}`, borderRadius: '10px', padd
 export default function AdminBookings() {
   const [bookings, setBookings] = useState([])
   const [courts] = useState(getCourts)
+  const [showBalance, setShowBalance] = useState(false) // "Balance Slots" report
   // Quick views (also linked from the sidebar): ?view=all | upcoming | court-<id> | u18
   const [params, setParams] = useSearchParams()
   const views = [
@@ -124,10 +126,19 @@ export default function AdminBookings() {
   return (
     <div className="space-y-5">
       <EmailNotice note={emailNote} onClose={closeEmailNote} />
-      <div>
-        <h1 className="text-2xl font-black" style={{ color: NAVY }}>{view.label}</h1>
-        <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{filtered.length} of {bookings.length} bookings</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black" style={{ color: NAVY }}>{view.label}</h1>
+          <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{filtered.length} of {bookings.length} bookings</p>
+        </div>
+        {/* Free slots still left to book, on every court */}
+        <button type="button" onClick={() => setShowBalance(true)}
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-black"
+          style={{ background: 'white', color: '#047857', border: '2px solid #6EE7B7', boxShadow: '0 4px 12px rgba(4,120,87,0.12)' }}>
+          <BarChart3 size={16} /> Balance Slots
+        </button>
       </div>
+      {showBalance && <BalanceSlotsReport courts={courts.filter(c => c.isActive)} onClose={() => setShowBalance(false)} />}
 
       {/* Quick views */}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Booking views">

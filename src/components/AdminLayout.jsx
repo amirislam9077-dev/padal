@@ -119,7 +119,8 @@ export default function AdminLayout() {
               </button>
             </div>
           </div>
-          <nav className="admin-tabs flex overflow-x-auto" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {/* Phones: all tabs in two rows of 5 (nothing hidden off-screen); tablets: one scrolling row */}
+          <nav className="admin-tabs grid grid-cols-5 sm:flex sm:overflow-x-auto" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             {navLinks.filter(l => !l.divider).map(({ to, label, short, icon: Icon }) => ( // Home is a button beside Logout here
               <Link key={to} to={to}
                 className="nav-link flex-1 shrink-0 min-w-[64px] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap"
