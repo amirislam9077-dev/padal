@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import LoginRequired from '../components/LoginRequired'
-import { formatSlotRange, getCurrentUser, mySlotsApi, scoreSlotApi, confirmScoreApi, creditApi } from '../store'
+import { formatSlotRange, formatHour, getCurrentUser, mySlotsApi, scoreSlotApi, confirmScoreApi, creditApi } from '../store'
 import EmailNotice from '../components/EmailNotice'
 import { X, Check, Paperclip, Trophy, Pencil, RefreshCw, Plus, Download, Printer, Clock, ClipboardList, ChevronLeft, ChevronRight, CalendarCheck, TrendingUp, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -140,6 +140,8 @@ export default function MyBookings() {
   const closeScoreNote = useCallback(() => setScoreNote(null), [])
 
   const today = format(new Date(), 'yyyy-MM-dd') // local date (Pakistan time), not UTC
+  // The time the page was opened: a match whose start is after this can't have a score yet
+  const [now] = useState(() => Date.now())
   const byStart = (a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour
   // Every tab: oldest date first, then newer (by start time within a day); Processing still on top
   // Processing (club still checking the payment) on top, then Confirmed
@@ -437,7 +439,7 @@ export default function MyBookings() {
                 </thead>
                 <tbody>
                   {pageRows.map(b => (
-                    <BookingRow key={b.id} booking={b} today={today} isMe={isMe} myTeam={myTeam(b)}
+                    <BookingRow key={b.id} booking={b} today={today} now={now} isMe={isMe} myTeam={myTeam(b)}
                       onScore={() => setScoring(b)} onConfirmScore={confirmScore}
                       isOwner={b.userId === user.id} />
                   ))}
@@ -551,9 +553,11 @@ function TeamCell({ players, isMe }) {
   )
 }
 
-function BookingRow({ booking, onScore, onConfirmScore, today, isMe, myTeam, isOwner }) {
+function BookingRow({ booking, onScore, onConfirmScore, today, now, isMe, myTeam, isOwner }) {
   const cancelled = booking.status === 'cancelled'
   const isPast = booking.date < today
+  // Has the match started? (Pakistan time — same rule as the server) Only then can a score be added
+  const started = new Date(`${booking.date}T${String(booking.startHour).padStart(2, '0')}:00:00+05:00`).getTime() <= now
   // Upcoming booking whose payment the club hasn't approved yet → highlighted row
   const processing = !cancelled && !isPast && !booking.paymentReceived
   const date = new Date(booking.date + 'T00:00')
@@ -660,12 +664,19 @@ function BookingRow({ booking, onScore, onConfirmScore, today, isMe, myTeam, isO
       <td className={`${cell} print:hidden whitespace-nowrap`}>
         {/* Labelled buttons: icon + name, so it's clear which is which */}
         <div className="flex items-center justify-end gap-1.5">
-          {!cancelled && (
+          {/* Score only once the match has started (today after its start time, or a past date) */}
+          {!cancelled && (started ? (
             <button type="button" onClick={onScore} title={score ? 'Edit the match score' : 'Add the match score'}
               className="row-act row-act-label" style={{ color: '#1D4ED8', borderColor: '#93C5FD', background: '#EFF6FF' }}>
               <ClipboardList size={14} strokeWidth={2.2} />{score ? 'Edit Score' : 'Add Score'}
             </button>
-          )}
+          ) : (
+            <button type="button" disabled
+              title={`The score can be added once the match starts (${format(new Date(`${booking.date}T00:00`), 'EEE d MMM')}, ${formatHour(booking.startHour)})`}
+              className="row-act row-act-label" style={{ color: '#94A3B8', borderColor: '#E2E8F0', background: '#F8FAFC', cursor: 'not-allowed' }}>
+              <Clock size={13} strokeWidth={2.2} />Add Score
+            </button>
+          ))}
           {/* Upcoming booking I made: change date, time, court or players */}
           {booking.status === 'confirmed' && !isPast && isOwner && (
             <Link to="/book" state={{ edit: booking }} title="Change the date, time, court or players"

@@ -1454,6 +1454,13 @@ async function emailScoreConfirm(row, byNo, baseUrl) {
 const publicBaseUrl = req => (process.env.PUBLIC_URL || req.get('origin') || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '')
 
 // Body: { sets: [[6,4],[3,6]] } or { sets: null } to clear. A new score waits for another player's confirmation.
+// Has this booking's start time (in Pakistan, UTC+5) arrived?
+function matchStarted(row) {
+  const day = row.date instanceof Date ? localDate(row.date) : String(row.date).slice(0, 10)
+  const start = new Date(`${day}T${String(timeToHour(row.time)).padStart(2, '0')}:00:00+05:00`)
+  return !isNaN(start) && start.getTime() <= Date.now()
+}
+
 app.post('/api/slots/:id/score', async (req, res) => {
   const sets = req.body?.sets
   if (sets !== null && !(Array.isArray(sets) && sets.length >= 1 && sets.length <= 3 &&
@@ -1463,6 +1470,8 @@ app.post('/api/slots/:id/score', async (req, res) => {
     const row = await memberSlot(req, res)
     if (!row) return
     if (row.status === 'cancelled') return res.status(400).json({ error: 'Cancelled bookings can\'t have a score.' })
+    // A score only once the match has started (Pakistan time, so it's right on a UTC server too)
+    if (!matchStarted(row)) return res.status(400).json({ error: 'The score can be added once the match has started — this match hasn\'t been played yet.', notStarted: true })
     const text = scoreToText(sets)
     if (text === row.score) return res.json({ booking: slotToBooking(row), emails: null }) // unchanged
     const byNo = text ? await myPlayerNo(row, currentUserId(req)) : null
