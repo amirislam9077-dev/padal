@@ -127,7 +127,7 @@ async function initDb() {
       picture VARCHAR(255) NULL,
       password_hash VARCHAR(255) NOT NULL,
       created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_member_name (membership_no, full_name), -- a name only once per membership
+      KEY idx_member_name (membership_no, full_name),
       KEY idx_email (email_address),
       UNIQUE KEY uniq_username (username)
     )
@@ -202,6 +202,10 @@ async function initDb() {
   const accHave = new Set(accCols.map(c => c.COLUMN_NAME))
   if (!accHave.has('username'))
     await pool.query('ALTER TABLE padalcreate ADD COLUMN username VARCHAR(30) NULL AFTER full_name, ADD UNIQUE KEY uniq_username (username)')
+  // Signup: the same full name may be registered more than once on a membership (was unique before)
+  const [nameIdx] = await pool.query("SHOW INDEX FROM padalcreate WHERE Key_name = 'uniq_member_name'")
+  if (nameIdx.length)
+    await pool.query('ALTER TABLE padalcreate DROP INDEX uniq_member_name, ADD INDEX idx_member_name (membership_no, full_name)')
   if (!accHave.has('date_of_birth'))
     await pool.query('ALTER TABLE padalcreate ADD COLUMN date_of_birth DATE NULL AFTER phone_number')
   await pool.query(`
@@ -322,15 +326,6 @@ app.use('/uploads', express.static(UPLOADS_DIR))
 // "  ali   khan " -> "ali khan" (the table collation already ignores upper/lower case)
 const cleanName = name => name.trim().replace(/\s+/g, ' ')
 
-// Returns an error message if this name is already registered on this membership number
-async function nameTaken(membershipNo, name) {
-  const [rows] = await pool.query(
-    'SELECT full_name FROM padalcreate WHERE membership_no = ? AND full_name = ?', [membershipNo.trim(), cleanName(name)])
-  return rows.length
-    ? `${rows[0].full_name} is already registered under ${membershipNo.trim()}. Please sign in instead.`
-    : null
-}
-
 // User ID: 3–30 letters, numbers, dot or underscore (unique; the collation ignores upper/lower case)
 const USERNAME_RE = /^[A-Za-z0-9._]{3,30}$/
 const USERNAME_RULE = 'User ID must be 3–30 letters, numbers, dots or underscores (no spaces).'
@@ -394,8 +389,6 @@ app.post('/api/send-otp', async (req, res) => {
   const phone = toE164(body.phone)
 
   try {
-    const taken = await nameTaken(body.membershipNo, body.name)
-    if (taken) return res.status(409).json({ error: taken })
     if (await usernameTaken(body.username)) return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
 
     const [recent] = await pool.query(
@@ -433,8 +426,6 @@ app.post('/api/signup', async (req, res) => {
   if (picture?.error) return res.status(400).json({ error: picture.error })
 
   try {
-    const taken = await nameTaken(membershipNo, name)
-    if (taken) return res.status(409).json({ error: taken })
     if (await usernameTaken(username)) return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
 
     const [codes] = await pool.query('SELECT * FROM otp_codes WHERE email = ? AND expires_at > NOW()', [email])
@@ -461,9 +452,7 @@ app.post('/api/signup', async (req, res) => {
     res.status(201).json({ user: toSession(rows[0]) })
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
-      return res.status(409).json(err.message.includes('uniq_username')
-        ? { error: USERNAME_TAKEN, usernameTaken: true }
-        : { error: `${cleanName(name)} is already registered under ${membershipNo.trim()}. Please sign in instead.` })
+      return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true }) // User ID is the only unique field left
     console.error(err)
     res.status(500).json({ error: 'Could not create account. Please try again.' })
   }
@@ -1763,6 +1752,71 @@ app.get('/api/admin/ledger', async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not load the ledger.' })
+  }
+})
+
+// ── Signed-up members (padalcreate) for the admin ──────────────
+// Everything except the password, plus age (from date of birth) and how many bookings they made (not cancelled)
+app.get('/api/admin/members', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.id, p.full_name, p.username, p.membership_no, p.email_address, p.phone_number, p.date_of_birth, p.picture, p.created_at,
+              TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
+              (SELECT COUNT(*) FROM slot s WHERE s.user_id = p.id AND s.status <> 'cancelled') AS bookings
+       FROM padalcreate p ORDER BY p.id DESC`)
+    res.json({ members: rows.map(r => ({
+      id: String(r.id), name: r.full_name, username: r.username || '', membershipNo: r.membership_no, email: r.email_address,
+      phone: r.phone_number, dob: r.date_of_birth instanceof Date ? localDate(r.date_of_birth) : (r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : ''),
+      age: r.age == null ? null : Number(r.age), picture: r.picture || null, createdAt: r.created_at, bookings: Number(r.bookings),
+    })) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load members.' })
+  }
+})
+
+// Admin edits a member. Body: { name, username, membershipNo, email, phone, dob } — the password is not changed here.
+app.put('/api/admin/members/:id', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const b = req.body || {}
+  const name = cleanName(String(b.name || ''))
+  const username = String(b.username || '').trim()
+  const membershipNo = String(b.membershipNo || '').trim().toUpperCase()
+  const email = String(b.email || '').trim().toLowerCase()
+  const phone = toE164(String(b.phone || ''))
+  const dob = String(b.dob || '').trim()
+  if (!name) return res.status(400).json({ error: 'Please enter the full name.' })
+  if (username && !USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_RULE })
+  if (!/^NNG-\d{1,16}$/.test(membershipNo)) return res.status(400).json({ error: 'Membership number must be NNG- followed by numbers.' })
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email address.' })
+  if (!/^\+\d{10,15}$/.test(phone)) return res.status(400).json({ error: 'Please enter a valid phone number.' })
+  if (dob && !validDob(dob)) return res.status(400).json({ error: 'Please enter a valid date of birth.' })
+  try {
+    const [r] = await pool.query(
+      'UPDATE padalcreate SET full_name = ?, username = ?, membership_no = ?, email_address = ?, phone_number = ?, date_of_birth = ? WHERE id = ?',
+      [name.slice(0, 150), username || null, membershipNo, email, phone, dob || null, req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ error: 'Member not found.' })
+    res.json({ ok: true })
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the member.' })
+  }
+})
+
+// Admin deletes a member's account. Their bookings and advance-balance history stay (as records);
+// the booking still shows the player names typed on it.
+app.delete('/api/admin/members/:id', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    const [r] = await pool.query('DELETE FROM padalcreate WHERE id = ?', [req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ error: 'Member not found.' })
+    await pool.query('DELETE FROM slot_holds WHERE user_id = ?', [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not delete the member.' })
   }
 })
 

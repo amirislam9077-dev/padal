@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText, TrendingUp, Receipt } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText, TrendingUp, Receipt, Users } from 'lucide-react'
 import { adminLogout, getCourts } from '../store'
 
 // Same dark colours as the public site header (Layout.jsx)
@@ -31,6 +31,7 @@ export default function AdminLayout() {
     { to: '/admin/scale', label: 'Scale', icon: BarChart3 },
     { to: '/admin/courts', label: 'Courts', icon: Grid2x2 },
     { to: '/admin/events', label: 'Events', icon: Trophy },
+    { to: '/admin/members', label: 'Signed-up Members', short: 'Members', icon: Users },
     { to: '/admin/ledger', label: 'Ledger', icon: BookOpenText },
     { to: '/admin/vouchers', label: 'Vouchers', icon: Receipt },
     { to: '/admin/profit-loss', label: 'Profit & Loss', short: 'P&L', icon: TrendingUp },

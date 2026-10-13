@@ -287,6 +287,9 @@ export const adminDeleteEventApi = id => apiRequest(`/api/admin/events/${id}`, {
 export const adminSlotsApi = () => apiRequest('/api/admin/slots', { headers: adminHeaders() })
 export const adminSetStatusApi = (id, status) => apiRequest(`/api/admin/slots/${id}/status`, { method: 'POST', body: { status }, headers: adminHeaders() })
 export const adminSetPaymentApi = (id, received) => apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() })
+export const adminMembersApi = () => apiRequest('/api/admin/members', { headers: adminHeaders() })
+export const adminUpdateMemberApi = (id, m) => apiRequest(`/api/admin/members/${id}`, { method: 'PUT', body: m, headers: adminHeaders() })
+export const adminDeleteMemberApi = id => apiRequest(`/api/admin/members/${id}`, { method: 'DELETE', headers: adminHeaders() })
 export const adminVouchersApi = () => apiRequest('/api/admin/vouchers', { headers: adminHeaders() })
 export const adminSaveVoucherApi = v => v.id
   ? apiRequest(`/api/admin/vouchers/${v.id}`, { method: 'PUT', body: v, headers: adminHeaders() })

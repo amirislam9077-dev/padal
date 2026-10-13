@@ -204,8 +204,6 @@ export default function Signup() {
   }, [form.username])
 
   // A name may only be registered once per membership number (ignores case and extra spaces)
-  const normName = s => s.trim().replace(/\s+/g, ' ').toLowerCase()
-  const takenBy = form.name.trim() ? members.find(m => normName(m.name) === normName(form.name)) : null
   const [picture, setPicture] = useState(null) // data URL of the chosen image
   const pictureInput = useRef()
 
@@ -259,9 +257,6 @@ export default function Signup() {
     }
     if (form.phone.length !== 10) {
       setError('Please enter a 10-digit mobile number after +92, e.g. 300 1234567.'); return
-    }
-    if (takenBy) {
-      setError(`${takenBy.name} is already registered on ${MEMBERSHIP_PREFIX}${form.membershipNo}. Please sign in instead.`); return
     }
     if (form.password.length < 6) {
       setError('Password must be at least 6 characters.'); return
@@ -401,14 +396,8 @@ export default function Signup() {
                   <User size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
                   <input type="text" name="name" placeholder="Ahmed Khan"
                     value={form.name} onChange={handleChange}
-                    style={{ ...fieldStyle, ...(takenBy && { borderColor: '#DC2626', background: '#FEF2F2' }) }} />
+                    style={fieldStyle} />
                 </div>
-                {takenBy && (
-                  <p className="text-xs mt-1" style={{ color: '#DC2626' }}>
-                    <strong>{takenBy.name}</strong> is already registered on {MEMBERSHIP_PREFIX}{form.membershipNo}.{' '}
-                    <Link to="/login" className="link font-bold whitespace-nowrap" style={{ color: '#DC2626' }}>Sign in</Link>
-                  </p>
-                )}
               </div>
             </div>
 
@@ -418,19 +407,13 @@ export default function Signup() {
                 <span className="text-xs mr-0.5" style={{ color: NAVY }}>
                   <strong>{MEMBERSHIP_PREFIX}{form.membershipNo}</strong> members:
                 </span>
-                {/* Selecting a name puts it in Full Name, which shows the "already registered" message */}
+                {/* Just for information: the same name can be registered again on this membership */}
                 {members.map(m => (
-                  <button key={m.id} type="button"
-                    onClick={() => { setForm(p => ({ ...p, name: m.name })); setError('') }}
-                    title={`${m.name} is already registered`}
-                    className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
-                    style={takenBy?.id === m.id
-                      ? { background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }
-                      : { background: 'white', color: NAVY, border: `1px solid ${BORDER}` }}>
+                  <span key={m.id} className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
+                    style={{ background: 'white', color: NAVY, border: `1px solid ${BORDER}` }}>
                     {m.name}
-                  </button>
+                  </span>
                 ))}
-                <span className="text-xs w-full" style={{ color: LGRAY }}>Each name can be registered only once on this membership.</span>
               </div>
             )}
 
