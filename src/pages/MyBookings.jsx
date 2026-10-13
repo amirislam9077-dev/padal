@@ -658,26 +658,26 @@ function BookingRow({ booking, onScore, onConfirmScore, today, isMe, myTeam, isO
               title="Your payment is being checked by the club"><Clock size={11} strokeWidth={3} />Processing</span>}
       </td>
       <td className={`${cell} print:hidden whitespace-nowrap`}>
-        {/* Matching square icon buttons (name shows on hover) */}
+        {/* Labelled buttons: icon + name, so it's clear which is which */}
         <div className="flex items-center justify-end gap-1.5">
           {!cancelled && (
-            <button type="button" onClick={onScore} title={score ? 'Edit score' : 'Add score'} aria-label={score ? 'Edit score' : 'Add score'}
-              className="row-act" style={score ? { color: INK, borderColor: '#94A3B8', background: '#F1F5F9' } : { color: INK, borderColor: '#CBD5E1', background: 'white' }}>
-              <ClipboardList size={15} strokeWidth={2.1} />
+            <button type="button" onClick={onScore} title={score ? 'Edit the match score' : 'Add the match score'}
+              className="row-act row-act-label" style={{ color: '#1D4ED8', borderColor: '#93C5FD', background: '#EFF6FF' }}>
+              <ClipboardList size={14} strokeWidth={2.2} />{score ? 'Edit Score' : 'Add Score'}
             </button>
           )}
           {/* Upcoming booking I made: change date, time, court or players */}
           {booking.status === 'confirmed' && !isPast && isOwner && (
-            <Link to="/book" state={{ edit: booking }} title="Edit booking" aria-label="Edit booking"
-              className="row-act" style={{ color: 'white', borderColor: INK, background: INK }}>
-              <Pencil size={14} strokeWidth={2.25} />
+            <Link to="/book" state={{ edit: booking }} title="Change the date, time, court or players"
+              className="row-act row-act-label" style={{ color: 'white', borderColor: INK, background: INK }}>
+              <Pencil size={13} strokeWidth={2.4} />Edit Booking
             </Link>
           )}
           {/* Cancelled: edit the date + time to make it active again (same court, players, slip) */}
           {cancelled && isOwner && (
-            <Link to="/book" state={{ rebook: booking }} title="Edit — pick a new date and time" aria-label="Edit cancelled booking"
-              className="row-act" style={{ color: 'white', borderColor: INK, background: INK }}>
-              <Pencil size={14} strokeWidth={2.25} />
+            <Link to="/book" state={{ rebook: booking }} title="Pick a new date and time to book it again"
+              className="row-act row-act-label" style={{ color: 'white', borderColor: INK, background: INK }}>
+              <Pencil size={13} strokeWidth={2.4} />Edit Booking
             </Link>
           )}
         </div>

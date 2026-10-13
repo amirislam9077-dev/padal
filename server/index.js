@@ -37,7 +37,7 @@ const UPLOADS_DIR = path.join(import.meta.dirname, 'uploads')
 const SLIPS_DIR = path.join(UPLOADS_DIR, 'slips')
 const MAX_PICTURE_BYTES = 2 * 1024 * 1024
 const PICTURE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
-const NO_ACCOUNT = 'No account found with this email. Please sign up first, then sign in.'
+const NO_ACCOUNT = 'No account found with this User ID. Please sign up first, then sign in.'
 // Gmail SMTP — SMTP_PASS must be a Gmail App Password, not the normal password.
 // Short timeouts so a blocked SMTP port fails in seconds instead of hanging for 2 minutes.
 const mailer = nodemailer.createTransport({
@@ -213,6 +213,29 @@ async function initDb() {
       sent_at DATETIME NOT NULL
     )
   `)
+  // A time a member has picked and is still booking ("processing"): others can't pick it until it's
+  // booked, released, or the hold runs out (renewed every minute while the booking page is open)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS slot_holds (
+      court_id VARCHAR(20) NOT NULL,
+      date DATE NOT NULL,
+      hour TINYINT NOT NULL,
+      user_id INT UNSIGNED NOT NULL,
+      expires_at DATETIME NOT NULL,
+      PRIMARY KEY (court_id, date, hour),
+      KEY idx_hold_user (user_id)
+    )
+  `)
+  // Forgot User ID / Forgot password codes (kept apart from signup codes so the two never overwrite each other)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recovery_codes (
+      email VARCHAR(255) PRIMARY KEY,
+      code_hash VARCHAR(255) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      attempts INT NOT NULL DEFAULT 0,
+      sent_at DATETIME NOT NULL
+    )
+  `)
   return pool
 }
 
@@ -313,30 +336,21 @@ app.get('/api/check-membership', async (req, res) => {
 const usernameTaken = async username =>
   (await pool.query('SELECT 1 FROM padalcreate WHERE username = ?', [username.trim()]))[0].length > 0
 
-// Live check from the signup form: is this User ID free?
+// Live check from the signup form (is this User ID free?) and the login form (does it exist,
+// and is that member under 18? Only the yes/no is sent, never the date of birth)
 app.get('/api/check-username', async (req, res) => {
   const username = String(req.query.username || '').trim()
   if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_RULE })
   try {
-    res.json({ taken: await usernameTaken(username) })
+    const [[row]] = await pool.query(
+      'SELECT TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) AS age FROM padalcreate WHERE username = ?', [username])
+    res.json({ taken: !!row, under18: row?.age != null && row.age < 18 })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not check User ID.' })
   }
 })
 
-// Live check from the login form: is this email registered?
-app.get('/api/check-email', async (req, res) => {
-  const email = String(req.query.email || '').trim().toLowerCase()
-  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Invalid email address.' })
-  try {
-    const [rows] = await pool.query('SELECT 1 FROM padalcreate WHERE email_address = ?', [email])
-    res.json({ exists: rows.length > 0 })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Could not check email.' })
-  }
-})
 
 app.post('/api/send-otp', async (req, res) => {
   const body = req.body || {}
@@ -422,20 +436,140 @@ app.post('/api/signup', async (req, res) => {
 })
 
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body || {}
-  if (!email?.trim() || !password)
-    return res.status(400).json({ error: 'Please enter your email and password.' })
+  const userId = String(req.body?.userId || '').trim()
+  const { password } = req.body || {}
+  if (!userId || !password)
+    return res.status(400).json({ error: 'Please enter your User ID and password.' })
+  if (!USERNAME_RE.test(userId)) return res.status(400).json({ error: USERNAME_RULE })
   try {
-    const [rows] = await pool.query('SELECT * FROM padalcreate WHERE email_address = ?', [email.trim().toLowerCase()])
-    if (!rows.length)
+    const [[row]] = await pool.query('SELECT * FROM padalcreate WHERE username = ?', [userId])
+    if (!row)
       return res.status(404).json({ error: NO_ACCOUNT, noAccount: true })
-    // Several accounts can share one email (family members): sign in to the one whose password matches
-    for (const row of rows)
-      if (await bcrypt.compare(password, row.password_hash)) return res.json({ user: toSession(row) })
-    res.status(401).json({ error: 'Incorrect password. Please try again.' })
+    if (!(await bcrypt.compare(password, row.password_hash)))
+      return res.status(401).json({ error: 'Incorrect password. Please try again.' })
+    res.json({ user: toSession(row) })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not sign in. Please try again.' })
+  }
+})
+
+// ── Forgot User ID / Forgot password ───────────────────────────
+// Both send a 6-digit code to the account's email. Forgot User ID: email → code → list of the
+// accounts on that email (an account made before User IDs existed can set one here).
+// Forgot password: User ID → code (to that account's email) → new password.
+const maskEmail = email => email[0] + '***@' + email.split('@')[1]
+
+async function sendRecoveryCode(email) {
+  const [recent] = await pool.query(
+    'SELECT 1 FROM recovery_codes WHERE email = ? AND sent_at > NOW() - INTERVAL ? SECOND', [email, OTP_RESEND_SECONDS])
+  if (recent.length) return `Please wait ${OTP_RESEND_SECONDS} seconds before requesting a new code.`
+  const code = String(crypto.randomInt(100000, 1000000))
+  await sendMail({
+    to: email,
+    subject: `Your NNG Trust account recovery code: ${code}`,
+    text: `Your NNG Trust account recovery code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.\n\nIf you did not ask for this, you can ignore this email.`,
+  })
+  await pool.query(
+    `REPLACE INTO recovery_codes (email, code_hash, expires_at, attempts, sent_at)
+     VALUES (?, ?, NOW() + INTERVAL ? MINUTE, 0, NOW())`,
+    [email, await bcrypt.hash(code, 10), OTP_TTL_MINUTES])
+  return null
+}
+
+// Returns an error message, or null when the code is right (the code stays valid until it expires)
+async function checkRecoveryCode(email, code) {
+  if (!/^\d{6}$/.test(code || '')) return 'Please enter the 6-digit code.'
+  const [[row]] = await pool.query('SELECT * FROM recovery_codes WHERE email = ? AND expires_at > NOW()', [email])
+  if (!row || row.attempts >= OTP_MAX_ATTEMPTS) return 'Code expired. Please request a new code.'
+  if (!(await bcrypt.compare(code, row.code_hash))) {
+    await pool.query('UPDATE recovery_codes SET attempts = attempts + 1 WHERE email = ?', [email])
+    return 'Incorrect code. Please try again.'
+  }
+  return null
+}
+
+const cleanEmail = email => String(email || '').trim().toLowerCase()
+const accountsByEmail = async email =>
+  (await pool.query('SELECT id, full_name, membership_no, username FROM padalcreate WHERE email_address = ? ORDER BY id', [email]))[0]
+    .map(r => ({ id: String(r.id), name: r.full_name, membershipNo: r.membership_no, username: r.username }))
+
+// Body: { email } (forgot User ID) or { userId } (forgot password) → { sentTo: masked email }
+app.post('/api/forgot/send-code', async (req, res) => {
+  const { email: rawEmail, userId: rawUserId } = req.body || {}
+  try {
+    let email
+    if (rawUserId !== undefined) {
+      const userId = String(rawUserId).trim()
+      if (!USERNAME_RE.test(userId)) return res.status(400).json({ error: USERNAME_RULE })
+      const [[row]] = await pool.query('SELECT email_address FROM padalcreate WHERE username = ?', [userId])
+      if (!row) return res.status(404).json({ error: NO_ACCOUNT, noAccount: true })
+      email = row.email_address
+    } else {
+      email = cleanEmail(rawEmail)
+      if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email address.' })
+      if (!(await accountsByEmail(email)).length)
+        return res.status(404).json({ error: 'No account found with this email.', noAccount: true })
+    }
+    const wait = await sendRecoveryCode(email)
+    if (wait) return res.status(429).json({ error: wait })
+    res.json({ sentTo: maskEmail(email) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not send the code. Please try again.' })
+  }
+})
+
+// Body: { email, code } → { accounts: [{ id, name, membershipNo, username }] }
+app.post('/api/forgot/accounts', async (req, res) => {
+  const email = cleanEmail(req.body?.email)
+  try {
+    const wrong = await checkRecoveryCode(email, req.body?.code)
+    if (wrong) return res.status(400).json({ error: wrong })
+    res.json({ accounts: await accountsByEmail(email) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not look up your accounts. Please try again.' })
+  }
+})
+
+// Body: { email, code, id, username } → { accounts } — gives a User ID to an account that has none
+app.post('/api/forgot/set-userid', async (req, res) => {
+  const email = cleanEmail(req.body?.email)
+  const username = String(req.body?.username || '').trim()
+  if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_RULE })
+  try {
+    const wrong = await checkRecoveryCode(email, req.body?.code)
+    if (wrong) return res.status(400).json({ error: wrong })
+    const [result] = await pool.query(
+      'UPDATE padalcreate SET username = ? WHERE id = ? AND email_address = ? AND username IS NULL',
+      [username, Number(req.body?.id), email])
+    if (!result.affectedRows) return res.status(400).json({ error: 'This account already has a User ID.' })
+    res.json({ accounts: await accountsByEmail(email) })
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true })
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the User ID. Please try again.' })
+  }
+})
+
+// Body: { userId, code, password } → { user } (signed in with the new password)
+app.post('/api/forgot/reset-password', async (req, res) => {
+  const userId = String(req.body?.userId || '').trim()
+  const { password } = req.body || {}
+  if (!USERNAME_RE.test(userId)) return res.status(400).json({ error: USERNAME_RULE })
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+  try {
+    const [[row]] = await pool.query('SELECT * FROM padalcreate WHERE username = ?', [userId])
+    if (!row) return res.status(404).json({ error: NO_ACCOUNT, noAccount: true })
+    const wrong = await checkRecoveryCode(row.email_address, req.body?.code)
+    if (wrong) return res.status(400).json({ error: wrong })
+    await pool.query('UPDATE padalcreate SET password_hash = ? WHERE id = ?', [await bcrypt.hash(password, 10), row.id])
+    await pool.query('DELETE FROM recovery_codes WHERE email = ?', [row.email_address])
+    res.json({ user: toSession(row) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not reset your password. Please try again.' })
   }
 })
 
@@ -761,19 +895,93 @@ function slotToBooking(r) {
   }
 }
 
-// Booked hours for one court on one date (public: no names)
+// Booked hours for one court on one date (public: no names), plus hours another member is
+// booking right now ("held"; the asking member's own hold is left out)
 app.get('/api/slots/booked', async (req, res) => {
   const { date, court } = req.query
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !court) return res.status(400).json({ error: 'date and court are required.' })
   try {
     const [rows] = await pool.query(
       "SELECT time, end_time, hour FROM slot WHERE date = ? AND court_id = ? AND status <> 'cancelled'", [date, String(court)])
-    res.json({ booked: rows.map(r => ({ startHour: timeToHour(r.time), endHour: timeToHour(r.end_time) ?? timeToHour(r.time) + (r.hour || 1) })) })
+    const [holds] = await pool.query(
+      'SELECT hour FROM slot_holds WHERE court_id = ? AND date = ? AND expires_at > NOW() AND user_id <> ?',
+      [String(court), date, currentUserId(req) || 0])
+    res.json({
+      booked: rows.map(r => ({ startHour: timeToHour(r.time), endHour: timeToHour(r.end_time) ?? timeToHour(r.time) + (r.hour || 1) })),
+      held: holds.map(h => h.hour),
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Could not load booked slots.' })
   }
 })
+
+// ── Slot holds ("processing") ──────────────────────────────────
+const HOLD_MINUTES = 5
+const PROCESSING = 'This time is in processing — another member is booking it right now. Please choose another time or try again in a few minutes.'
+
+// Hours [start, end) on this court/date held by someone other than userId (pass a transaction to lock them)
+async function heldByOthers(db, courtId, date, start, end, userId, lock = false) {
+  const [rows] = await db.query(
+    `SELECT hour FROM slot_holds WHERE court_id = ? AND date = ? AND hour >= ? AND hour < ? AND user_id <> ? AND expires_at > NOW()${lock ? ' FOR UPDATE' : ''}`,
+    [String(courtId), date, start, end, userId])
+  return rows.length > 0
+}
+
+// Hold (or renew the hold on) the time the member has picked. Body: { courtId, date, startHour, hours }
+// Picking a new time releases the member's old hold. → { ok } or 409 { processing }
+app.post('/api/slots/hold', async (req, res) => {
+  const userId = currentUserId(req)
+  if (!userId) return res.status(401).json({ error: 'Please log in again to book.', relogin: true })
+  const b = req.body || {}
+  const start = Number(b.startHour), hours = Number(b.hours)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '') || !b.courtId || !Number.isInteger(start) || ![1, 2, 3].includes(hours))
+    return res.status(400).json({ error: 'Please choose a court, date and time.' })
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.query('DELETE FROM slot_holds WHERE expires_at <= NOW()')
+    if (await heldByOthers(conn, b.courtId, b.date, start, start + hours, userId, true)) {
+      await conn.rollback(); return res.status(409).json({ error: PROCESSING, processing: true })
+    }
+    await conn.query('DELETE FROM slot_holds WHERE user_id = ?', [userId])
+    for (let h = start; h < start + hours; h++)
+      await conn.query('INSERT INTO slot_holds (court_id, date, hour, user_id, expires_at) VALUES (?, ?, ?, ?, NOW() + INTERVAL ? MINUTE)',
+        [String(b.courtId), b.date, h, userId, HOLD_MINUTES])
+    await conn.commit()
+    res.json({ ok: true })
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    // Two members clicked the same free hour at the same moment: the second one loses
+    if (err.code === 'ER_DUP_ENTRY' || err.code === 'ER_LOCK_DEADLOCK') return res.status(409).json({ error: PROCESSING, processing: true })
+    console.error(err)
+    res.status(500).json({ error: 'Could not reserve this time. Please try again.' })
+  } finally {
+    conn.release()
+  }
+})
+
+// Let go of the member's hold (picked another date/court, or left the page)
+app.delete('/api/slots/hold', async (req, res) => {
+  const userId = currentUserId(req)
+  if (!userId) return res.status(401).json({ error: 'Please log in again.', relogin: true })
+  try {
+    await pool.query('DELETE FROM slot_holds WHERE user_id = ?', [userId])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not release the time.' })
+  }
+})
+
+// 3pm–6pm is for under-18 members only (age from date_of_birth in padalcreate; no date of birth = not allowed)
+const KIDS_ONLY = 'You are not applicable to book this slot. Only under-18 players can book this slot.'
+async function adultInKidsTime(userId, start, hours) {
+  if (!kidsFreeHours(start, hours)) return false
+  const [[row]] = await pool.query(
+    'SELECT TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) AS age FROM padalcreate WHERE id = ?', [userId])
+  return !(row?.age != null && row.age < 18)
+}
 
 // Create a booking. Body: { courtId, courtName, date, startHour, hours, phone, depositSlip, players: [{ n, name, cmNo }] }
 app.post('/api/slots', async (req, res) => {
@@ -785,6 +993,12 @@ app.post('/api/slots', async (req, res) => {
   if (!Number.isInteger(start) || start < OPEN_HOUR || start >= CLOSE_HOUR || ![1, 2, 3].includes(hours) || start + hours > CLOSE_HOUR)
     return res.status(400).json({ error: 'Please choose a time between 3pm and 12am.' })
   if (b.date < localToday()) return res.status(400).json({ error: 'That date has already passed.' })
+  try {
+    if (await adultInKidsTime(userId, start, hours)) return res.status(403).json({ error: KIDS_ONLY, kidsOnly: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
+  }
   // Price is worked out here, not trusted from the browser
   const freeHours = b.junior === true ? kidsFreeHours(start, hours) : 0
   const junior = freeHours > 0 // only marked under-18 when free hours actually apply
@@ -814,6 +1028,9 @@ app.post('/api/slots', async (req, res) => {
       return start < e && end > s
     })
     if (clash) { await conn.rollback(); return res.status(409).json({ error: 'Sorry — that time was just booked by someone else. Please choose another slot.' }) }
+    if (await heldByOthers(conn, b.courtId, b.date, start, end, userId, true)) {
+      await conn.rollback(); return res.status(409).json({ error: PROCESSING, processing: true })
+    }
 
     // "Edit" on a cancelled booking: its deposit slip (with slip no., bank, reference no.) carries
     // over and pays for the new slot again; the old booking is removed afterwards
@@ -873,6 +1090,7 @@ app.post('/api/slots', async (req, res) => {
     const nothingNew = !slip && (payment - coveredByOld - creditUsed <= 0)
     if (nothingNew && (!old || old.payment_received || coveredByOld === 0))
       await conn.query('UPDATE slot SET payment_received = 1, payment_received_at = NOW() WHERE id = ?', [result.insertId])
+    await conn.query('DELETE FROM slot_holds WHERE user_id = ?', [userId]) // booked: no longer "processing"
     await conn.commit()
     const [[row]] = await pool.query('SELECT * FROM slot WHERE id = ?', [result.insertId])
     res.status(201).json({ booking: slotToBooking(row), replaced: old ? String(old.id) : null })
@@ -898,6 +1116,12 @@ app.put('/api/slots/:id', async (req, res) => {
   if (!Number.isInteger(start) || start < OPEN_HOUR || start >= CLOSE_HOUR || ![1, 2, 3].includes(hours) || start + hours > CLOSE_HOUR)
     return res.status(400).json({ error: 'Please choose a time between 3pm and 12am.' })
   if (b.date < today) return res.status(400).json({ error: 'That date has already passed.' })
+  try {
+    if (await adultInKidsTime(userId, start, hours)) return res.status(403).json({ error: KIDS_ONLY, kidsOnly: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
+  }
   const freeHours = b.junior === true ? kidsFreeHours(start, hours) : 0
   const junior = freeHours > 0
   const payment = (hours - freeHours) * RATE_PER_HOUR
@@ -930,6 +1154,9 @@ app.put('/api/slots/:id', async (req, res) => {
       return start < e && end > s
     })
     if (clash) { await conn.rollback(); return res.status(409).json({ error: 'Sorry — that time was just booked by someone else. Please choose another slot.' }) }
+    if (await heldByOthers(conn, b.courtId, b.date, start, end, userId, true)) {
+      await conn.rollback(); return res.status(409).json({ error: PROCESSING, processing: true })
+    }
 
     const held = refundableAmount(row) // what this booking has already been paid
     let creditUsed = Number(row.credit_used || 0)
@@ -965,6 +1192,7 @@ app.put('/api/slots/:id', async (req, res) => {
         teamName([1, 2]), teamName([3, 4]), payment, creditUsed, junior ? 1 : 0,
         String(b.phone || '').slice(0, 20) || null, slipFinal, slip ? refNo : (refNo || row.reference_no || null),
         slip ? bank : (bank || row.bank_name || null), slip ? 1 : 0, slip ? 1 : 0, row.id])
+    await conn.query('DELETE FROM slot_holds WHERE user_id = ?', [userId]) // saved: no longer "processing"
     await conn.commit()
     const [[updated]] = await pool.query('SELECT * FROM slot WHERE id = ?', [row.id])
     res.json({ booking: slotToBooking(updated), balance: await creditBalance(pool, userId) })
@@ -1416,6 +1644,94 @@ app.post('/api/admin/slots/:id/payment', async (req, res) => {
     console.error(err)
     res.status(500).json({ error: 'Could not update the payment.' })
   }
+})
+
+// Admin ledger: every booking from the slot table, plus the advance-balance ledger (credit_ledger)
+// with each member's totals. → { bookings, entries, members }
+app.get('/api/admin/ledger', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    const [rows] = await pool.query(
+      `SELECT l.id, l.user_id, l.amount, l.reason, l.slot_id, l.created_at,
+              p.full_name, p.username, p.membership_no, s.slot_ref
+       FROM credit_ledger l
+       LEFT JOIN padalcreate p ON p.id = l.user_id
+       LEFT JOIN slot s ON s.id = l.slot_id
+       ORDER BY l.id DESC`)
+    const entries = rows.map(r => ({
+      id: String(r.id), userId: String(r.user_id), name: r.full_name || `Member #${r.user_id}`, username: r.username,
+      membershipNo: r.membership_no, amount: Number(r.amount), reason: r.reason,
+      slotId: r.slot_id ? String(r.slot_id) : null, slotRef: r.slot_ref || (r.slot_id ? slotRefFor(r.slot_id) : null),
+      createdAt: r.created_at,
+    }))
+    const byMember = new Map()
+    for (const e of entries) {
+      const m = byMember.get(e.userId) || { userId: e.userId, name: e.name, username: e.username, membershipNo: e.membershipNo, credited: 0, used: 0, balance: 0, count: 0 }
+      if (e.amount > 0) m.credited += e.amount; else m.used += -e.amount
+      m.balance += e.amount; m.count++
+      byMember.set(e.userId, m)
+    }
+    // Every booking from the slot table (newest date first), with who booked it
+    const [slots] = await pool.query(
+      `SELECT s.*, p.full_name AS booker_name, p.username AS booker_username, p.membership_no AS booker_membership
+       FROM slot s LEFT JOIN padalcreate p ON p.id = s.user_id
+       ORDER BY s.date DESC, s.time DESC, s.id DESC`)
+    const bookings = slots.map(r => ({
+      ...slotToBooking(r),
+      bookerName: r.booker_name || r.player1, bookerUsername: r.booker_username || null, bookerMembership: r.booker_membership || null,
+    }))
+    res.json({ bookings, entries, members: [...byMember.values()].sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name)) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load the ledger.' })
+  }
+})
+
+// Admin edits a booking: court, date, start time, players and phone. Length and payment stay as
+// they are. Body: { courtId, courtName, date, startHour, phone, players: [{ n, name, cmNo }] } → { booking }
+app.put('/api/admin/slots/:id', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const b = req.body || {}
+  const start = Number(b.startHour)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '') || !b.courtId) return res.status(400).json({ error: 'Please choose a court and date.' })
+  const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
+  if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
+  if (!byN[1]) return res.status(400).json({ error: 'Player 1 is required.' })
+  const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null
+
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [[row]] = await conn.query('SELECT * FROM slot WHERE id = ? FOR UPDATE', [req.params.id])
+    if (!row) { await conn.rollback(); return res.status(404).json({ error: 'Booking not found.' }) }
+    const hours = (timeToHour(row.end_time) ?? timeToHour(row.time) + (row.hour || 1)) - timeToHour(row.time)
+    const end = start + hours
+    if (!Number.isInteger(start) || start < OPEN_HOUR || end > CLOSE_HOUR) {
+      await conn.rollback(); return res.status(400).json({ error: `This ${hours}-hour booking must fit between 3pm and 12am.` })
+    }
+    const [others] = await conn.query(
+      "SELECT time, end_time, hour FROM slot WHERE date = ? AND court_id = ? AND status <> 'cancelled' AND id <> ? FOR UPDATE",
+      [b.date, String(b.courtId), row.id])
+    if (others.some(o => { const s = timeToHour(o.time), e = timeToHour(o.end_time) ?? s + (o.hour || 1); return start < e && end > s })) {
+      await conn.rollback(); return res.status(409).json({ error: 'That time is already booked on this court. Choose another time.' })
+    }
+    await conn.query(
+      `UPDATE slot SET court_id = ?, court = ?, date = ?, time = ?, end_time = ?,
+         player1 = ?, player1_cm = ?, player2 = ?, player2_cm = ?, player3 = ?, player3_cm = ?, player4 = ?, player4_cm = ?,
+         team1 = ?, team2 = ?, phone = ? WHERE id = ?`,
+      [String(b.courtId), String(b.courtName || '').slice(0, 50) || row.court, b.date, hourToTime(start), hourToTime(end),
+        byN[1]?.name || null, byN[1]?.cm || null, byN[2]?.name || null, byN[2]?.cm || null,
+        byN[3]?.name || null, byN[3]?.cm || null, byN[4]?.name || null, byN[4]?.cm || null,
+        teamName([1, 2]), teamName([3, 4]), String(b.phone ?? row.phone ?? '').slice(0, 20) || null, row.id])
+    await conn.commit()
+    const [[updated]] = await pool.query('SELECT * FROM slot WHERE id = ?', [row.id])
+    res.json({ booking: slotToBooking(updated) })
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the booking.' })
+  } finally { conn.release() }
 })
 
 app.delete('/api/admin/slots/:id', async (req, res) => {

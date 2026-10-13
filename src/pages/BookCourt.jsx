@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import LoginRequired from '../components/LoginRequired'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark, ChevronDown, Search } from 'lucide-react'
-import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
+import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, isUnder18, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, holdSlotApi, releaseHoldApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
 import { format, addDays } from 'date-fns'
 
 const NAVY = '#1B2E4B'
@@ -320,6 +320,8 @@ export default function BookCourt() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getCurrentUser()
+  // 3pm–6pm (kids time) can only be booked by under-18 members
+  const under18 = isUnder18(user?.dob)
 
   const courts = getCourts().filter(c => c.isActive)
   const dates = getNext30Days()
@@ -455,33 +457,56 @@ export default function BookCourt() {
     if (error) setError('')
   }
   const [bookedSlots, setBookedSlots] = useState([])
+  const [heldHours, setHeldHours] = useState([]) // another member is booking these right now ("processing")
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
 
-  // Booked hours for the chosen court + date come from MySQL (slot table)
+  // Booked hours for the chosen court + date come from MySQL (slot table); reloaded every
+  // 10 seconds so a time another member has just picked shows as "processing"
   const [bookedVersion, setBookedVersion] = useState(0) // bump to reload after a clash
   useEffect(() => {
-    if (!courtId || !selectedDate) return
+    if (!courtId || !selectedDate || success) return
     let cancelled = false
-    bookedSlotsApi(selectedDate, courtId).then(r => {
-      if (cancelled) return
+    const load = () => bookedSlotsApi(selectedDate, courtId).then(r => {
+      if (cancelled || r.error) return
       // The booking being edited doesn't block its own time
       const own = b => editing && courtId === editing.courtId && selectedDate === editing.date
         && b.startHour === editing.startHour && b.endHour === editing.endHour
       setBookedSlots((r.booked || []).filter(b => !own(b)))
+      setHeldHours(r.held || [])
     })
-    return () => { cancelled = true }
-  }, [courtId, selectedDate, bookedVersion, editing])
+    load()
+    const timer = setInterval(load, 10000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [courtId, selectedDate, bookedVersion, editing, success])
+
+  // Hold the picked time while this member books it (renewed every minute); let go of it when
+  // the time is cleared or the page is left. Losing a race to another member un-picks the time.
+  useEffect(() => {
+    if (!courtId || !selectedDate || !selectedTime || success) { releaseHoldApi(); return }
+    let cancelled = false
+    const hold = () => holdSlotApi(courtId, selectedDate, parseInt(selectedTime), duration).then(r => {
+      if (cancelled || !r.processing) return
+      setSelectedTime(''); setStep(1); setToast(r.error); setBookedVersion(v => v + 1)
+    })
+    hold()
+    const timer = setInterval(hold, 60000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [courtId, selectedDate, selectedTime, duration, success])
+  useEffect(() => {
+    window.addEventListener('pagehide', releaseHoldApi)
+    return () => { window.removeEventListener('pagehide', releaseHoldApi); releaseHoldApi() }
+  }, [])
 
   // Changing the court or date clears the chosen time
   // On phones the time slots are below the calendar, so bring them into view after picking a date
   const timeSection = useRef(null)
   function chooseDate(key) {
-    setSelectedDate(key); setSelectedTime(''); setBookedSlots([])
+    setSelectedDate(key); setSelectedTime(''); setBookedSlots([]); setHeldHours([])
     if (window.innerWidth < 768) setTimeout(() => timeSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
   }
-  function chooseCourt(id) { setCourtId(id); setSelectedTime(''); setBookedSlots([]) }
+  function chooseCourt(id) { setCourtId(id); setSelectedTime(''); setBookedSlots([]); setHeldHours([]) }
   const [saving, setSaving] = useState(false)
 
   function isHourBooked(h) { return bookedSlots.some(b => h >= b.startHour && h < b.endHour) }
@@ -489,6 +514,9 @@ export default function BookCourt() {
   function rangeOverlapsBooked(start, end) {
     return bookedSlots.some(b => start < b.endHour && end > b.startHour)
   }
+
+  const isHourHeld = h => heldHours.includes(h)
+  const rangeOverlapsHeld = (start, end) => heldHours.some(h => h >= start && h < end)
 
   const durationConflict = selectedTime
     ? rangeOverlapsBooked(parseInt(selectedTime), parseInt(selectedTime) + duration)
@@ -500,11 +528,20 @@ export default function BookCourt() {
       setToast(`This slot (${formatSlotRange(hour, hour + 1)}) is already booked — please choose another time.`)
       return
     }
+    if (!under18 && kidsFreeHours(hour, duration) > 0) {
+      setToast('You are not applicable to book this slot. Only under-18 players can book this slot.')
+      return
+    }
+    if (rangeOverlapsHeld(hour, hour + duration)) {
+      setToast('This time is in processing — another member is booking it right now. Please choose another time or try again in a few minutes.')
+      return
+    }
     setSelectedTime(String(hour))
   }
 
   function goStep2() {
     if (!selectedDate || !selectedTime) { setError('Please select a date and a time slot.'); return }
+    if (!under18 && inKidsWindow) { setError('You are not applicable to book this slot. Only under-18 players can book this slot.'); return }
     setError(''); setStep(2)
     setTimeout(() => document.getElementById('step2')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
@@ -553,7 +590,7 @@ export default function BookCourt() {
     setSaving(false)
     if (result.error) {
       setError(result.error)
-      if (result.relogin === undefined && /just booked/.test(result.error)) setBookedVersion(v => v + 1) // refresh taken slots
+      if (result.relogin === undefined && (result.processing || /just booked/.test(result.error))) setBookedVersion(v => v + 1) // refresh taken slots
       return
     }
     setSuccess(editing || rebook ? 'updated' : true)
@@ -800,6 +837,7 @@ export default function BookCourt() {
                 <div className="flex gap-3 text-[11px] font-semibold" style={{ color: LGRAY }}>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: NAVY }} />Selected</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#F87171' }} />Booked</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#F59E0B' }} />Processing</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#CBD5E1' }} />Available</span>
                 </div>
               )}
@@ -841,7 +879,7 @@ export default function BookCourt() {
                   <div key={g.label}>
                     <p className="text-[11px] font-semibold mb-1" style={{ color: g.kids ? '#047857' : LGRAY }}>
                       {g.label}
-                      {g.kids && <span> · {formatHourShort(KIDS_FREE_FROM)}–{formatHourShort(KIDS_FREE_TO)} free for under-18s</span>}
+                      {g.kids && <span> · {formatHourShort(KIDS_FREE_FROM)}–{formatHourShort(KIDS_FREE_TO)} only for under-18 players (free)</span>}
                     </p>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-1.5">
                       {TIME_SLOTS.filter(h => h >= g.from && h < g.to).map(hour => {
@@ -849,23 +887,31 @@ export default function BookCourt() {
                         const start = parseInt(selectedTime)
                         const sel = start === hour
                         const inRange = selectedTime && hour > start && hour < start + duration // rest of a 2–3 hr booking
-                        const avail = !booked && !rangeOverlapsBooked(hour, hour + duration) && hour + duration <= 24
+                        const kidsFree = hour >= KIDS_FREE_FROM && hour < KIDS_FREE_TO
+                        const kidsOnly = !under18 && kidsFreeHours(hour, duration) > 0 // greyed out for 18+ members
+                        const held = !booked && isHourHeld(hour) // another member is booking it right now
+                        const avail = !booked && !kidsOnly && !rangeOverlapsBooked(hour, hour + duration) && !rangeOverlapsHeld(hour, hour + duration) && hour + duration <= 24
                         let style
                         if (sel) style = { background: NAVY, color: 'white', border: `1.5px solid ${NAVY}`, boxShadow: '0 4px 10px rgba(27,46,75,0.25)' }
                         else if (booked) style = { background: '#FEF2F2', color: '#EF4444', border: '1.5px solid #FECACA' }
+                        else if (held) style = { background: '#FFFBEB', color: '#B45309', border: '1.5px solid #FCD34D', cursor: 'not-allowed' }
                         else if (inRange) style = { background: '#E3EAF4', color: NAVY, border: `1.5px solid #B6C4D6` }
                         else if (!avail) style = { background: '#F8F9FB', color: '#C8D3E0', border: '1.5px solid #EEF2F7', cursor: 'not-allowed' }
                         else style = { background: 'white', color: '#334155', border: `1.5px solid ${BORDER}` }
-                        const kidsFree = hour >= KIDS_FREE_FROM && hour < KIDS_FREE_TO
                         return (
                           <button key={hour} type="button" onClick={() => handleSlotClick(hour)}
-                            title={booked ? `${formatSlotRange(hour, hour + 1)} · booked` : kidsFree ? `${formatSlotRange(hour, hour + 1)} · free for under-18 players` : formatSlotRange(hour, hour + 1)}
+                            title={booked ? `${formatSlotRange(hour, hour + 1)} · booked` : held ? `${formatSlotRange(hour, hour + 1)} · processing (another member is booking it)` : kidsFree ? `${formatSlotRange(hour, hour + 1)} · only for under-18 players` : formatSlotRange(hour, hour + 1)}
                             className="relative h-11 sm:h-8 px-1 rounded-lg text-sm sm:text-xs font-semibold whitespace-nowrap"
                             style={{ ...style, textDecoration: booked ? 'line-through' : 'none' }}>
                             {formatSlotRange(hour, hour + 1)}
-                            {kidsFree && !booked && (
+                            {held ? (
                               <span className="absolute -top-1.5 right-1 px-1 rounded text-[8px] font-black leading-tight"
-                                style={{ background: '#047857', color: 'white', textDecoration: 'none' }}>U18 FREE</span>
+                                style={{ background: '#D97706', color: 'white', textDecoration: 'none' }}>PROCESSING</span>
+                            ) : kidsFree && !booked && (
+                              <span className="absolute -top-1.5 right-1 px-1 rounded text-[8px] font-black leading-tight"
+                                style={{ background: kidsOnly ? '#94A3B8' : '#047857', color: 'white', textDecoration: 'none' }}>
+                                {kidsOnly ? 'U18 ONLY' : 'U18 FREE'}
+                              </span>
                             )}
                           </button>
                         )

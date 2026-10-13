@@ -147,14 +147,6 @@ export async function checkUsernameApi(username) {
   }
 }
 
-export async function checkEmailApi(email) {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/check-email?email=${encodeURIComponent(email)}`)
-    return await res.json()
-  } catch {
-    return { error: 'Cannot reach the server.' }
-  }
-}
 
 export function sendOtpApi(form) {
   return postJson('/api/send-otp', form)
@@ -166,6 +158,23 @@ export function signupApi(form) {
 
 export function loginApi(form) {
   return authRequest('/api/login', form)
+}
+
+// Forgot User ID / password: send a code to { email } or { userId }'s email
+export function sendRecoveryCodeApi(body) {
+  return postJson('/api/forgot/send-code', body)
+}
+
+export function recoverAccountsApi(email, code) {
+  return postJson('/api/forgot/accounts', { email, code })
+}
+
+export function setUserIdApi(email, code, id, username) {
+  return postJson('/api/forgot/set-userid', { email, code, id, username })
+}
+
+export function resetPasswordApi(userId, code, password) {
+  return authRequest('/api/forgot/reset-password', { userId, code, password })
 }
 
 // ── Bookings ──
@@ -193,8 +202,21 @@ async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
 
 const RELOGIN = { error: 'Please log out and log in again.', relogin: true }
 
+// Logged in: the member's own hold is left out of "held"
 export function bookedSlotsApi(date, courtId) {
-  return apiRequest(`/api/slots/booked?date=${date}&court=${encodeURIComponent(courtId)}`)
+  return apiRequest(`/api/slots/booked?date=${date}&court=${encodeURIComponent(courtId)}`, { headers: memberHeaders() || {} })
+}
+
+// Reserve the picked time while booking (others see it as "processing"); call again to renew
+export function holdSlotApi(courtId, date, startHour, hours) {
+  const headers = memberHeaders()
+  return headers ? apiRequest('/api/slots/hold', { method: 'POST', body: { courtId, date, startHour, hours }, headers }) : Promise.resolve(RELOGIN)
+}
+
+// keepalive: still sent when the page is being closed
+export function releaseHoldApi() {
+  const headers = memberHeaders()
+  if (headers) fetch(`${BACKEND_URL}/api/slots/hold`, { method: 'DELETE', headers, keepalive: true }).catch(() => {})
 }
 
 export function createSlotApi(booking) {
@@ -265,6 +287,8 @@ export const adminDeleteEventApi = id => apiRequest(`/api/admin/events/${id}`, {
 export const adminSlotsApi = () => apiRequest('/api/admin/slots', { headers: adminHeaders() })
 export const adminSetStatusApi = (id, status) => apiRequest(`/api/admin/slots/${id}/status`, { method: 'POST', body: { status }, headers: adminHeaders() })
 export const adminSetPaymentApi = (id, received) => apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() })
+export const adminLedgerApi = () => apiRequest('/api/admin/ledger', { headers: adminHeaders() })
+export const adminUpdateSlotApi = (id, booking) => apiRequest(`/api/admin/slots/${id}`, { method: 'PUT', body: booking, headers: adminHeaders() })
 export const adminDeleteSlotApi = id => apiRequest(`/api/admin/slots/${id}`, { method: 'DELETE', headers: adminHeaders() })
 
 // slotId: the saved booking — the server picks the email (in process / confirmed) from its payment status
@@ -302,6 +326,15 @@ export async function updatePictureApi(picture) {
 export function getCurrentUser() {
   const s = sessionStorage.getItem(SESSION_KEY)
   return s ? JSON.parse(s) : null
+}
+
+// Under 18 today, from the member's date of birth (no date of birth = treated as 18+; the server checks again)
+export function isUnder18(dob) {
+  const d = dob ? new Date(dob) : null
+  if (!d || isNaN(d)) return false
+  const now = new Date()
+  const birthdayPassed = now.getMonth() > d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() >= d.getDate())
+  return now.getFullYear() - d.getFullYear() - (birthdayPassed ? 0 : 1) < 18
 }
 
 export function logoutUser() {

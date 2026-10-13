@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText } from 'lucide-react'
 import { adminLogout, getCourts } from '../store'
 
 const NAVY = '#1B2E4B'
@@ -28,6 +28,7 @@ export default function AdminLayout() {
     { to: '/admin/scale', label: 'Scale', icon: BarChart3 },
     { to: '/admin/courts', label: 'Courts', icon: Grid2x2 },
     { to: '/admin/events', label: 'Events', icon: Trophy },
+    { to: '/admin/ledger', label: 'Ledger', icon: BookOpenText },
     // Back to the public booking site
     { to: '/', label: 'Booking Home Page', short: 'Home', icon: House, divider: true },
   ]

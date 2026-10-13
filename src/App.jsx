@@ -16,9 +16,11 @@ import AdminCourts from './pages/AdminCourts'
 import AdminEvents from './pages/AdminEvents'
 import AdminCalendar from './pages/AdminCalendar'
 import AdminScale from './pages/AdminScale'
+import AdminLedger from './pages/AdminLedger'
 import Complaints from './pages/Complaints'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
+import ForgotAccount from './pages/ForgotAccount'
 import Layout from './components/Layout'
 import AdminLayout from './components/AdminLayout'
 
@@ -39,6 +41,8 @@ export default function App() {
           <Route path="/complaints" element={<Complaints />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-user-id" element={<ForgotAccount mode="userid" key="userid" />} />
+          <Route path="/forgot-password" element={<ForgotAccount mode="password" key="password" />} />
         </Route>
         <Route path="/admin" element={<AdminLogin />} />
         <Route
@@ -54,6 +58,7 @@ export default function App() {
           <Route path="/admin/scale" element={<AdminScale />} />
           <Route path="/admin/courts" element={<AdminCourts />} />
           <Route path="/admin/events" element={<AdminEvents />} />
+          <Route path="/admin/ledger" element={<AdminLedger />} />
         </Route>
       </Routes>
     </BrowserRouter>

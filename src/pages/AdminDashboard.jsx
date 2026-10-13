@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import EmailNotice from '../components/EmailNotice'
 import { getCourts, formatHour, formatSlotRange, adminSlotsApi, adminSetPaymentApi } from '../store'
 import { CourtCharts } from '../components/BookingCharts'
-import { CalendarDays, CheckCircle, XCircle, TrendingUp, Clock, Paperclip, ChevronLeft, ChevronRight, Download, Printer } from 'lucide-react'
+import AdminEditBooking from '../components/AdminEditBooking'
+import { CalendarDays, CheckCircle, XCircle, TrendingUp, Clock, Paperclip, ChevronLeft, ChevronRight, Download, Printer, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 
 const NAVY = '#1B2E4B'
@@ -25,6 +26,9 @@ export default function AdminDashboard() {
     setBookings(list => list.map(x => (x.id === b.id ? r.booking : x)))
     if (r.emails) setEmailNote({ slotRef: r.booking?.slotRef, ...r.emails }) // approving sends the "confirmed" email
   }
+
+  // Edit (court, date, time, players, phone) for each upcoming booking
+  const [editingBooking, setEditingBooking] = useState(null)
 
   // All bookings from MySQL (slot table)
   useEffect(() => {
@@ -107,6 +111,10 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       <EmailNotice note={emailNote} onClose={closeEmailNote} />
+      {editingBooking && (
+        <AdminEditBooking booking={editingBooking} onClose={() => setEditingBooking(null)}
+          onSaved={saved => { setBookings(list => list.map(x => (x.id === saved.id ? saved : x))); setEditingBooking(null) }} />
+      )}
       <div className="print:hidden">
         <h1 className="text-2xl font-black" style={{ color: NAVY }}>Dashboard</h1>
         <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
@@ -165,8 +173,8 @@ export default function AdminDashboard() {
             <table className="w-full text-sm">
               <thead style={{ background: '#F5F7FA' }}>
                 <tr>
-                  {['Slot Ref', 'Date & Time', 'Court', 'Match', 'Booked by', 'Payment', 'Deposit Slip', 'Payment Received', 'Status'].map((h, i) => (
-                    <th key={i} className={`px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wide ${h === 'Payment Received' ? 'leading-tight' : 'whitespace-nowrap'}`} style={{ color: LGRAY, width: h === 'Payment Received' ? '72px' : undefined }}>{h}</th>
+                  {['Slot Ref', 'Date & Time', 'Court', 'Match', 'Booked by', 'Payment', 'Deposit Slip', 'Payment Received', 'Status', 'Actions'].map((h, i) => (
+                    <th key={i} className={`px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wide ${h === 'Payment Received' ? 'leading-tight' : 'whitespace-nowrap'} ${h === 'Actions' ? 'print:hidden' : ''}`} style={{ color: LGRAY, width: h === 'Payment Received' ? '72px' : undefined }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -249,6 +257,13 @@ export default function AdminDashboard() {
                             </span>
                           )
                         })()}
+                      </td>
+                      <td className={`${cell} print:hidden`}>
+                        <button type="button" onClick={() => setEditingBooking(b)} title="Edit booking"
+                          className="inline-flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-bold"
+                          style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>
+                          <Pencil size={12} /> Edit
+                        </button>
                       </td>
                     </tr>
                   )
