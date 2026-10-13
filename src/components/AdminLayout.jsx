@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText, TrendingUp, Receipt } from 'lucide-react'
 import { adminLogout, getCourts } from '../store'
 
 const NAVY = '#1B2E4B'
@@ -29,6 +29,8 @@ export default function AdminLayout() {
     { to: '/admin/courts', label: 'Courts', icon: Grid2x2 },
     { to: '/admin/events', label: 'Events', icon: Trophy },
     { to: '/admin/ledger', label: 'Ledger', icon: BookOpenText },
+    { to: '/admin/vouchers', label: 'Vouchers', icon: Receipt },
+    { to: '/admin/profit-loss', label: 'Profit & Loss', short: 'P&L', icon: TrendingUp },
     // Back to the public booking site
     { to: '/', label: 'Booking Home Page', short: 'Home', icon: House, divider: true },
   ]
@@ -36,10 +38,11 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen flex" style={{ background: '#F1F4F8' }}>
       {/* Sidebar on wide screens; phones/tablets get the top bar below */}
-      <aside className="hidden lg:flex print:hidden w-60 shrink-0 flex-col shadow-xl" style={{ background: NAVY }}>
-        <div className="p-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      {/* Fits the window height and stays in place while the page scrolls (scrolls itself only on very short screens) */}
+      <aside className="hidden lg:flex print:hidden w-60 shrink-0 flex-col shadow-xl sticky top-0 h-screen" style={{ background: NAVY }}>
+        <div className="px-4 py-3 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow"
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shadow"
               style={{ background: '#FFFFFF', color: NAVY }}>NN</div>
             <div>
               <p className="font-bold text-white text-sm">NNGT Admin</p>
@@ -48,11 +51,11 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="admin-tabs flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-0.5">
           {navLinks.map(({ to, label, icon: Icon, divider }) => (
-            <div key={to} className={divider ? 'pt-2 mt-2' : ''} style={divider ? { borderTop: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+            <div key={to} className={divider ? 'pt-1.5 mt-1.5' : ''} style={divider ? { borderTop: '1px solid rgba(255,255,255,0.08)' } : undefined}>
               <Link to={to}
-                className="nav-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold"
+                className="nav-link flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold"
                 style={pathname === to
                   ? { background: 'rgba(255,255,255,0.15)', color: '#FFFFFF' }
                   : { color: 'rgba(255,255,255,0.5)' }}>
@@ -60,14 +63,14 @@ export default function AdminLayout() {
                 {label}
                 {pathname === to && <ChevronRight size={13} className="ml-auto" />}
               </Link>
-              {/* Booking views under "All Bookings" */}
-              {to === '/admin/bookings' && (
-                <div className="mt-1 mb-1 ml-5 pl-3 space-y-0.5" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+              {/* Booking views under "All Bookings" — only while on that page, so the sidebar fits the screen */}
+              {to === '/admin/bookings' && pathname === to && (
+                <div className="mt-0.5 mb-1 ml-5 pl-3 space-y-0.5" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
                   {bookingViews.map(v => {
                     const on = pathname === to && currentView === v.key
                     return (
                       <Link key={v.key} to={v.key === 'all' ? to : `${to}?view=${v.key}`}
-                        className="nav-link block px-3 py-1.5 rounded-lg text-xs font-semibold"
+                        className="nav-link block px-3 py-1 rounded-lg text-xs font-semibold"
                         style={on ? { background: 'rgba(255,255,255,0.12)', color: '#FFFFFF' } : { color: 'rgba(255,255,255,0.45)' }}>
                         {v.label}
                       </Link>
@@ -78,7 +81,7 @@ export default function AdminLayout() {
           ))}
         </nav>
 
-        <div className="p-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="px-3 py-2 shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <button onClick={logout}
             className="nav-link flex items-center gap-2 text-sm w-full px-3 py-2 rounded-xl"
             style={{ color: 'rgba(255,255,255,0.35)' }}>

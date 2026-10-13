@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import LoginRequired from '../components/LoginRequired'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowRight, Check, User, Phone, AlertCircle, X, Paperclip, FileText, Mail, Calendar, Clock, MapPin, Timer, RefreshCw, Pencil, Landmark, ChevronDown, Search } from 'lucide-react'
-import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, isUnder18, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, holdSlotApi, releaseHoldApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
-import { format, addDays } from 'date-fns'
+import { getCourts, TIME_SLOTS, formatHour, formatHourShort, formatSlotRange, formatDate, getCurrentUser, isUnder18, RATE_PER_HOUR, KIDS_FREE_FROM, KIDS_FREE_TO, kidsFreeHours, bookingCost, searchMembersApi, uploadSlipApi, sendBookingEmailsApi, bookedSlotsApi, holdSlotApi, releaseHoldApi, mySlotsApi, createSlotApi, updateSlotApi, creditApi, newSlotRefApi } from '../store'
+import { format, addDays, startOfWeek } from 'date-fns'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
@@ -350,7 +350,8 @@ export default function BookCourt() {
   const [selectedTime, setSelectedTime] = useState(prefill && selectedDate && TIME_SLOTS.includes(prefill.startHour) ? String(prefill.startHour) : '')
   const [duration] = useState(prefill ? Math.min(3, (prefill.endHour - prefill.startHour) || 1) : 1)
   // Under-18 players: hours between 3pm and 6pm are free
-  const [junior, setJunior] = useState(!!prefill?.junior)
+  // Under-18 members play 3pm–6pm free (only they can book those hours), no checkbox needed
+  const junior = under18
   const startHour = parseInt(selectedTime)
   const inKidsWindow = !!selectedTime && kidsFreeHours(startHour, duration) > 0
   const cost = selectedTime ? bookingCost(startHour, duration, junior && inKidsWindow) : { total: RATE_PER_HOUR * duration, freeHours: 0, paidHours: duration }
@@ -370,6 +371,8 @@ export default function BookCourt() {
   const creditUse = paidBefore + Math.min(advance, cost.total - paidBefore)
   const amountDue = cost.total - creditUse
   const slipNeeded = amountDue > 0
+  // Nothing to pay at all (under-18 in kids time): no deposit slip, bank or reference no.
+  const isFree = !!selectedTime && cost.total === 0
   const advLabel = prefill ? 'Paid before' : 'Advance'
   // Slot reference no. (SLOT-001 …): a new booking reserves its unique number as soon as the page opens;
   // an edited booking keeps its own
@@ -429,7 +432,7 @@ export default function BookCourt() {
   const [bankName, setBankName] = useState(() => (slip?.fromCancelled && prefill?.bankName) || '')
   const [otherBank, setOtherBank] = useState(() => !!bankName && !ALL_BANKS.includes(bankName)) // a bank not in the list
   const [refError, setRefError] = useState('') // reference no. / bank name message
-  const refNeeded = !!slip && !slip.fromCancelled // a newly attached slip needs its reference no.
+  const refNeeded = !!slip && !slip.fromCancelled && !isFree // a newly attached slip needs its reference no. (a free booking sends none)
   const [slipBusy, setSlipBusy] = useState(false)
   const [slipError, setSlipError] = useState('')
   // Confirmation emails after booking: { sending } → { sent, skipped } or { error }
@@ -457,6 +460,9 @@ export default function BookCourt() {
 
   // Member chosen from the search list: fill name, CM No. and their photo
   function pickExtra(n, m) {
+    // Each player must be a different person: don't let the same member in twice
+    const taken = allPlayers.find(o => o.n !== n && sameMember(o, m))
+    if (taken) { setToast(`${m.name} (${m.membershipNo}) is already added as Player ${taken.n}. Please choose a different player.`); return }
     setExtraPlayers(list => list.map(p => p.n === n ? { ...p, name: m.name, cm: m.membershipNo, picture: m.picture || null } : p))
     if (error) setError('')
   }
@@ -519,6 +525,29 @@ export default function BookCourt() {
     return bookedSlots.some(b => start < b.endHour && end > b.startHour)
   }
 
+  // One booking per week (Monday–Sunday): the member's own active bookings, by week. The booking being
+  // edited doesn't count; a cancelled one being rebooked is already cancelled. The server checks this too.
+  const [myBookings, setMyBookings] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    mySlotsApi().then(r => {
+      if (!cancelled && r.bookings) setMyBookings(r.bookings.filter(b => b.userId === String(user?.id) && b.status !== 'cancelled'))
+    })
+    return () => { cancelled = true }
+  }, [user?.id, success])
+  // The same time (e.g. 8–9 PM) can be booked at most twice a week (Mon–Sun), both courts counted together
+  const SAME_TIME_PER_WEEK = 2
+  const weekOf = key => format(startOfWeek(new Date(`${key}T00:00`), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+  const sameTimeThisWeek = hour => selectedDate
+    ? myBookings.filter(b => b.id !== editing?.id && b.startHour === hour && weekOf(b.date) === weekOf(selectedDate)) : []
+  const weekFull = hour => sameTimeThisWeek(hour).length >= SAME_TIME_PER_WEEK
+  const weekLimitText = hour => `You have already booked ${formatSlotRange(hour, hour + 1)} ${sameTimeThisWeek(hour).length === 2 ? 'twice' : `${sameTimeThisWeek(hour).length} times`} this week (${
+    sameTimeThisWeek(hour).map(b => `${b.slotRef} ${format(new Date(`${b.date}T00:00`), 'EEE d MMM')}`).join(', ')
+  }). The same time can be booked only twice a week (Monday–Sunday). Please choose another time or another week.`
+  // This week's bookings by time, for the note above the slots: { 20: 2, 21: 1 }
+  const weekCounts = selectedDate ? myBookings.filter(b => b.id !== editing?.id && weekOf(b.date) === weekOf(selectedDate))
+    .reduce((m, b) => ({ ...m, [b.startHour]: (m[b.startHour] || 0) + 1 }), {}) : {}
+
   const isHourHeld = h => heldHours.includes(h)
   const rangeOverlapsHeld = (start, end) => heldHours.some(h => h >= start && h < end)
 
@@ -532,6 +561,7 @@ export default function BookCourt() {
       setToast(`This slot (${formatSlotRange(hour, hour + 1)}) is already booked — please choose another time.`)
       return
     }
+    if (weekFull(hour)) { setToast(weekLimitText(hour)); return }
     if (!under18 && kidsFreeHours(hour, duration) > 0) {
       setToast('You are not applicable to book this slot. Only under-18 players can book this slot.')
       return
@@ -545,6 +575,7 @@ export default function BookCourt() {
 
   function goStep2() {
     if (!selectedDate || !selectedTime) { setError('Please select a date and a time slot.'); return }
+    if (weekFull(parseInt(selectedTime))) { setError(weekLimitText(parseInt(selectedTime))); return }
     if (!under18 && inKidsWindow) { setError('You are not applicable to book this slot. Only under-18 players can book this slot.'); return }
     setError(''); setStep(2)
     setTimeout(() => document.getElementById('step2')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -569,6 +600,7 @@ export default function BookCourt() {
     }
     if (refNeeded && !bankName.trim()) { setRefError('Please enter the bank name of the deposit slip.'); setError(''); return }
     if (refNeeded && !refNo.trim()) { setRefError('Please enter the reference no. printed on the deposit slip.'); setError(''); return }
+    if (isFree) { setError(''); handleConfirm(); return } // nothing to pay: book it now, skip checkout
     setError(''); setStep(3)
     setTimeout(() => document.getElementById('step3')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
@@ -584,8 +616,8 @@ export default function BookCourt() {
     const payload = {
       courtId, courtName: court?.name, date: selectedDate, startHour: start, hours: duration,
       // A carried-over slip isn't sent as new — the server keeps the old booking's slip itself
-      phone: playerPhone.trim(), depositSlip: slip && !slip.fromCancelled ? slip.path : null, players: bookingPlayers(),
-      referenceNo: refNo.trim() || null, bankName: bankName.trim() || null,
+      phone: playerPhone.trim(), depositSlip: slip && !slip.fromCancelled && !isFree ? slip.path : null, players: bookingPlayers(),
+      referenceNo: isFree ? null : refNo.trim() || null, bankName: isFree ? null : bankName.trim() || null,
       slotRef: prefill ? null : newRef, // the number reserved for this booking
       junior: junior && inKidsWindow,
       rebookOf: rebook?.id || null, // the cancelled booking this replaces (removed after saving)
@@ -686,7 +718,7 @@ export default function BookCourt() {
         )}
 
         <div className="flex gap-3 justify-center">
-          <button onClick={() => { setSuccess(false); setEditing(null); setRebook(null); setReplacedBooking(null); setSavedRef(null); setNewRef(null); setRefVersion(v => v + 1); setStep(1); setSelectedDate(''); setSelectedTime(''); setBookedVersion(v => v + 1); setPlayerName(user.name || ''); setPlayerCnic(user.membershipNo || ''); setPlayerPhone(user.phone || ''); setExtraPlayers(emptyExtraPlayers()); setSlip(null); setSlipError(''); setRefNo(''); setBankName(''); setOtherBank(false); setRefError(''); setEmailStatus(null); setJunior(false); creditApi().then(r => setCredit(r.balance || 0)) }}
+          <button onClick={() => { setSuccess(false); setEditing(null); setRebook(null); setReplacedBooking(null); setSavedRef(null); setNewRef(null); setRefVersion(v => v + 1); setStep(1); setSelectedDate(''); setSelectedTime(''); setBookedVersion(v => v + 1); setPlayerName(user.name || ''); setPlayerCnic(user.membershipNo || ''); setPlayerPhone(user.phone || ''); setExtraPlayers(emptyExtraPlayers()); setSlip(null); setSlipError(''); setRefNo(''); setBankName(''); setOtherBank(false); setRefError(''); setEmailStatus(null); creditApi().then(r => setCredit(r.balance || 0)) }}
             className="btn font-bold px-6 py-2.5 rounded-xl text-sm" style={{ background: NAVY, color: 'white' }}>
             Book Another
           </button>
@@ -893,6 +925,20 @@ export default function BookCourt() {
                     </div>
                   )
                 })()}
+                {/* This week's bookings by time (Mon–Sun): each time can be booked twice a week */}
+                {Object.keys(weekCounts).length > 0 && (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E3A8A' }}>
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                      <b>Your bookings this week:</b>{' '}
+                      {Object.entries(weekCounts).sort(([a], [b]) => a - b).map(([h, n], i) => (
+                        <span key={h}>{i > 0 && ' · '}<span style={n >= SAME_TIME_PER_WEEK ? { color: '#B91C1C', fontWeight: 800 } : { fontWeight: 700 }}>
+                          {formatSlotRange(+h, +h + 1)} ×{n}{n >= SAME_TIME_PER_WEEK ? ' (full)' : ''}</span></span>
+                      ))}
+                      <span className="block" style={{ color: '#64748B' }}>The same time can be booked twice a week (Monday–Sunday).</span>
+                    </span>
+                  </div>
+                )}
                 {SLOT_GROUPS.map(g => (
                   <div key={g.label}>
                     <p className="text-[11px] font-semibold mb-1" style={{ color: g.kids ? '#047857' : LGRAY }}>
@@ -908,7 +954,8 @@ export default function BookCourt() {
                         const kidsFree = hour >= KIDS_FREE_FROM && hour < KIDS_FREE_TO
                         const kidsOnly = !under18 && kidsFreeHours(hour, duration) > 0 // greyed out for 18+ members
                         const held = !booked && isHourHeld(hour) // another member is booking it right now
-                        const avail = !booked && !kidsOnly && !rangeOverlapsBooked(hour, hour + duration) && !rangeOverlapsHeld(hour, hour + duration) && hour + duration <= 24
+                        const weekLimit = weekFull(hour) // this time already booked twice this week
+                        const avail = !booked && !kidsOnly && !weekLimit && !rangeOverlapsBooked(hour, hour + duration) && !rangeOverlapsHeld(hour, hour + duration) && hour + duration <= 24
                         let style
                         if (sel) style = { background: NAVY, color: 'white', border: `1.5px solid ${NAVY}`, boxShadow: '0 4px 10px rgba(27,46,75,0.25)' }
                         else if (booked) style = { background: '#FEF2F2', color: '#EF4444', border: '1.5px solid #FECACA' }
@@ -918,11 +965,14 @@ export default function BookCourt() {
                         else style = { background: 'white', color: '#334155', border: `1.5px solid ${BORDER}` }
                         return (
                           <button key={hour} type="button" onClick={() => handleSlotClick(hour)}
-                            title={booked ? `${formatSlotRange(hour, hour + 1)} · booked` : held ? `${formatSlotRange(hour, hour + 1)} · processing (another member is booking it)` : kidsFree ? `${formatSlotRange(hour, hour + 1)} · only for under-18 players` : formatSlotRange(hour, hour + 1)}
+                            title={booked ? `${formatSlotRange(hour, hour + 1)} · booked` : weekLimit ? `${formatSlotRange(hour, hour + 1)} · you already booked this time twice this week` : held ? `${formatSlotRange(hour, hour + 1)} · processing (another member is booking it)` : kidsFree ? `${formatSlotRange(hour, hour + 1)} · only for under-18 players` : formatSlotRange(hour, hour + 1)}
                             className="relative h-11 sm:h-8 px-1 rounded-lg text-sm sm:text-xs font-semibold whitespace-nowrap"
                             style={{ ...style, textDecoration: booked ? 'line-through' : 'none' }}>
                             {formatSlotRange(hour, hour + 1)}
-                            {held ? (
+                            {weekLimit && !booked ? (
+                              <span className="absolute -top-1.5 right-1 px-1 rounded text-[8px] font-black leading-tight"
+                                style={{ background: '#B91C1C', color: 'white', textDecoration: 'none' }}>2/2 WEEK</span>
+                            ) : held ? (
                               <span className="absolute -top-1.5 right-1 px-1 rounded text-[8px] font-black leading-tight"
                                 style={{ background: '#D97706', color: 'white', textDecoration: 'none' }}>PROCESSING</span>
                             ) : kidsFree && !booked && (
@@ -958,18 +1008,18 @@ export default function BookCourt() {
               </div>
             )}
 
-            {/* Under-18 option when the time includes 3pm–6pm */}
-            {inKidsWindow && !durationConflict && (
-              <label className="mt-2 flex items-start gap-2.5 px-3 py-2 rounded-xl cursor-pointer"
-                style={{ background: junior ? '#ECFDF5' : '#F8FAFC', border: `1.5px solid ${junior ? '#6EE7B7' : BORDER}` }}>
-                <input type="checkbox" checked={junior} onChange={e => setJunior(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 shrink-0" style={{ accentColor: '#047857' }} />
+            {/* Under-18 member in kids time (3pm–6pm): free automatically */}
+            {inKidsWindow && junior && !durationConflict && (
+              <div className="mt-2 flex items-start gap-2.5 px-3 py-2 rounded-xl"
+                style={{ background: '#ECFDF5', border: '1.5px solid #6EE7B7' }}>
+                <Check size={16} strokeWidth={3} className="shrink-0 mt-0.5" style={{ color: '#047857' }} />
                 <span className="text-xs leading-snug" style={{ color: NAVY }}>
-                  <b>Under-18 players</b> — {formatHourShort(KIDS_FREE_FROM)}–{formatHourShort(KIDS_FREE_TO)} is free for kids
+                  <b style={{ color: '#047857' }}>Free for you (under-18)</b> — {formatHourShort(KIDS_FREE_FROM)}–{formatHourShort(KIDS_FREE_TO)} is free
                   {' '}({kidsFreeHours(startHour, duration)} of {duration} {duration === 1 ? 'hour' : 'hours'} free).
+                  {cost.total === 0 && <> No deposit slip or payment needed.</>}
                   <span className="block" style={{ color: LGRAY }}>Age may be checked at the court.</span>
                 </span>
-              </label>
+              </div>
             )}
           </div>
           </div>{/* right column */}
@@ -1043,10 +1093,21 @@ export default function BookCourt() {
                 const renderPlayer = p => {
                   // Players already in other rows are hidden from this row's search results
                   const others = allPlayers.filter(o => o.n !== p.n && o.name.trim() && o.cm.trim())
+                  // Same person (name + CM No.) already in an earlier row → this row is shown in red
+                  const playerKey = o => `${o.name.trim().toLowerCase()}|${o.cm.trim().toUpperCase()}`
+                  const dupOf = p.name.trim() && p.cm.trim() ? allPlayers.find(o => o.n < p.n && playerKey(o) === playerKey(p)) : null
                   return (
                     <div key={p.n} className="flex items-start gap-2.5">
-                      <span className="mt-0.5" title={p.you ? 'Player 1 (you)' : `Player ${p.n} (optional)`}><PlayerAvatar player={p} /></span>
-                      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <span className="mt-5" title={p.you ? 'Player 1 (you)' : `Player ${p.n} (optional)`}><PlayerAvatar player={p} /></span>
+                      <div className="flex-1 min-w-0">
+                      {/* Label above each row: Player 1 is you; players 2–4 are optional */}
+                      <p className="flex items-center gap-1.5 mb-1 text-[10px] font-black uppercase tracking-wider" style={{ color: NAVY }}>
+                        Player {p.n}
+                        {p.you
+                          ? <span className="px-1.5 py-px rounded" style={{ background: NAVY, color: 'white' }}>You</span>
+                          : <span className="px-1.5 py-px rounded normal-case tracking-normal font-bold" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D' }}>Optional</span>}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {p.you ? (
                           <>
                             <div className="relative">
@@ -1065,13 +1126,20 @@ export default function BookCourt() {
                             <MemberCombo value={p.name} icon={nameIcon} exclude={others}
                               placeholder="Select player"
                               onPick={m => pickExtra(p.n, m)}
-                              style={inputStyleWithIcon} />
+                              style={dupOf ? { ...inputStyleWithIcon, borderColor: '#DC2626', background: '#FEF2F2' } : inputStyleWithIcon} />
                             <MemberSearchInput field="cm" value={p.cm} icon={cmIcon} exclude={others}
                               placeholder="or CM No."
                               onChange={v => updateExtra(p.n, 'cm', v)} onPick={m => pickExtra(p.n, m)}
-                              style={inputStyleWithIcon} />
+                              style={dupOf ? { ...inputStyleWithIcon, borderColor: '#DC2626', background: '#FEF2F2' } : inputStyleWithIcon} />
                           </>
                         )}
+                      </div>
+                      {dupOf && (
+                        <p className="flex items-center gap-1 mt-1 text-[11px] font-bold" style={{ color: '#DC2626' }}>
+                          <AlertCircle size={12} className="shrink-0" />
+                          Already added as Player {dupOf.n}{dupOf.you ? ' (you)' : ''} — please choose a different player.
+                        </p>
+                      )}
                       </div>
                     </div>
                   )
@@ -1109,10 +1177,12 @@ export default function BookCourt() {
               <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3 mb-3 items-end p-3 sm:p-4 rounded-2xl"
                 style={{ background: '#EFF6FF', border: `2px solid #BFDBFE`, boxShadow: 'inset 4px 0 0 #3B82F6' }}>
                 <p className="sm:col-span-2 md:col-span-6 order-first flex items-center gap-2 text-sm font-black -mb-1" style={{ color: '#1D4ED8' }}>
-                  <Landmark size={15} /> Payment &amp; Contact Details
-                  <span className="text-[11px] font-semibold" style={{ color: '#64748B' }}>— please fill these in carefully</span>
+                  <Landmark size={15} /> {isFree ? 'Contact Details' : <>Payment &amp; Contact Details</>}
+                  <span className="text-[11px] font-semibold" style={{ color: '#64748B' }}>
+                    {isFree ? '— free booking, no payment needed' : '— please fill these in carefully'}
+                  </span>
                 </p>
-                <div className="md:col-span-2">
+                <div className={isFree ? 'md:col-span-4' : 'md:col-span-2'}>
                   <label style={{ ...keyLabel }}>Contact Phone</label>
                   <div className="relative">
                     <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: KEY_BLUE }} />
@@ -1122,6 +1192,8 @@ export default function BookCourt() {
                   </div>
                 </div>
 
+                {/* Free booking (under-18 kids time): no slip, bank or reference no. */}
+                {!isFree && (<>
                 {/* Deposit slip (required unless the booking is free) */}
                 <div className="min-w-0 md:col-span-2">
                   <label style={{ ...keyLabel, color: slipError ? '#DC2626' : NAVY }} title={`JPG, PNG, WEBP or PDF · max ${MAX_SLIP_MB} MB`}>
@@ -1198,6 +1270,7 @@ export default function BookCourt() {
                       style={{ ...keyInput, paddingLeft: '34px', ...(refError && bankName.trim() && !refNo.trim() ? { borderColor: '#DC2626', background: '#FEF2F2' } : {}) }} />
                   </div>
                 </div>
+                </>)}
 
                 <div className="md:col-span-2 rounded-xl px-3 py-2 flex items-center justify-between gap-2"
                   style={{ background: '#EEF2F7', border: `1px solid ${BORDER}`, minHeight: '38px' }}>
@@ -1251,10 +1324,15 @@ export default function BookCourt() {
                   {error}
                 </div>
               )}
-              <button onClick={goStep3}
+              {/* Free (under-18 kids time): book straight away — no checkout step, no payment */}
+              <button onClick={goStep3} disabled={saving}
                 className="btn w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 tracking-wide"
-                style={{ background: NAVY, color: 'white', boxShadow: '0 4px 14px rgba(27,46,75,0.25)' }}>
-                NEXT <ArrowRight size={17} />
+                style={isFree
+                  ? { background: '#047857', color: 'white', boxShadow: '0 4px 14px rgba(4,120,87,0.3)', opacity: saving ? 0.7 : 1 }
+                  : { background: NAVY, color: 'white', boxShadow: '0 4px 14px rgba(27,46,75,0.25)' }}>
+                {isFree
+                  ? <>{saving ? 'BOOKING…' : editing ? 'SAVE — FREE (UNDER-18)' : 'BOOK NOW — FREE (UNDER-18)'} <Check size={17} strokeWidth={3} /></>
+                  : <>NEXT <ArrowRight size={17} /></>}
               </button>
             </>
           ) : (
@@ -1330,8 +1408,9 @@ export default function BookCourt() {
               {/* Contact | deposit slip | payment, then bank name | reference no. */}
               <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-2 mb-4">
                 {[
+                  ...(isFree ? [] : [ // free booking: no bank / reference no.
                   { icon: <Landmark size={15} />, label: 'Bank Name', value: bankName.trim() },
-                  { icon: <FileText size={15} />, label: 'Reference No.', value: refNo.trim() },
+                  { icon: <FileText size={15} />, label: 'Reference No.', value: refNo.trim() }]),
                 ].map(t => (
                   <div key={t.label} className="md:col-span-3 order-last flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: '#F5F7FA', border: `1px solid ${BORDER}` }}>
                     <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'white', color: '#4A6FA5', border: `1px solid ${BORDER}` }}>{t.icon}</span>

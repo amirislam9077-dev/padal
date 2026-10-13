@@ -226,6 +226,40 @@ async function initDb() {
       KEY idx_hold_user (user_id)
     )
   `)
+  // Expense vouchers entered by the admin (salary, electricity, maintenance …) — used by Profit & Loss
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vouchers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      date DATE NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      paid_to VARCHAR(100) NULL,
+      method VARCHAR(30) NULL,
+      notes VARCHAR(255) NULL,
+      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_voucher_date (date)
+    )
+  `)
+  // Admin-added choices for the voucher form: kind 'category' (Salary, …) or 'payee' (Secretary, …)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS voucher_options (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(10) NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_option (kind, name)
+    )
+  `)
+  // Cheque number when a voucher is paid by cheque
+  const [vCols] = await pool.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vouchers'")
+  if (!vCols.some(c => c.COLUMN_NAME === 'cheque_no'))
+    await pool.query('ALTER TABLE vouchers ADD COLUMN cheque_no VARCHAR(30) NULL AFTER method')
+  // Voucher reference no. (VCH-2026-0005): made when the voucher is saved, unique, never changes
+  if (!vCols.some(c => c.COLUMN_NAME === 'voucher_no'))
+    await pool.query('ALTER TABLE vouchers ADD COLUMN voucher_no VARCHAR(20) NULL AFTER id, ADD UNIQUE KEY uniq_voucher_no (voucher_no)')
+  await pool.query("UPDATE vouchers SET voucher_no = CONCAT('VCH-', YEAR(COALESCE(created_at, NOW())), '-', LPAD(id, 4, '0')) WHERE voucher_no IS NULL")
+  if (!vCols.some(c => c.COLUMN_NAME === 'bank_name'))
+    await pool.query('ALTER TABLE vouchers ADD COLUMN bank_name VARCHAR(60) NULL AFTER cheque_no')
   // Forgot User ID / Forgot password codes (kept apart from signup codes so the two never overwrite each other)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS recovery_codes (
@@ -974,6 +1008,35 @@ app.delete('/api/slots/hold', async (req, res) => {
   }
 })
 
+// The same time slot (e.g. 8–9 PM) can be booked at most twice per week (Monday–Sunday, by the slot's date)
+// by one member — both courts counted together. Each time slot has its own limit. Cancelled bookings don't
+// count; excludeId = the booking being edited. Returns an error message, or null.
+const SAME_TIME_PER_WEEK = 2
+async function weekLimitError(db, userId, date, start, excludeId = 0) {
+  const [rows] = await db.query(
+    `SELECT id, slot_ref, date, court FROM slot
+     WHERE user_id = ? AND status <> 'cancelled' AND YEARWEEK(date, 1) = YEARWEEK(?, 1) AND time = ? AND id <> ?
+     ORDER BY date FOR UPDATE`, [userId, date, hourToTime(start), excludeId])
+  if (rows.length < SAME_TIME_PER_WEEK) return null
+  const list = rows.map(r => {
+    const d = new Date(`${r.date instanceof Date ? localDate(r.date) : String(r.date).slice(0, 10)}T00:00`)
+    return `${r.slot_ref || slotRefFor(r.id)} ${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`
+  }).join(', ')
+  return `You have already booked ${hourText(start)}–${hourText(start + 1)} ${rows.length === 2 ? 'twice' : `${rows.length} times`} this week (${list}). The same time can be booked only twice a week (Monday–Sunday). Please choose another time or another week.`
+}
+
+// The 4 players of a booking must be different people (same name + CM No. twice is refused).
+// Returns the repeated player's name, or null.
+function duplicatePlayer(players) {
+  const seen = new Set()
+  for (const p of players) {
+    const key = `${cleanName(p.name).toLowerCase()}|${String(p.cmNo || '').trim().toUpperCase()}`
+    if (seen.has(key)) return cleanName(p.name)
+    seen.add(key)
+  }
+  return null
+}
+
 // 3pm–6pm is for under-18 members only (age from date_of_birth in padalcreate; no date of birth = not allowed)
 const KIDS_ONLY = 'You are not applicable to book this slot. Only under-18 players can book this slot.'
 async function adultInKidsTime(userId, start, hours) {
@@ -1000,7 +1063,8 @@ app.post('/api/slots', async (req, res) => {
     return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
   }
   // Price is worked out here, not trusted from the browser
-  const freeHours = b.junior === true ? kidsFreeHours(start, hours) : 0
+  // Only under-18 members can get this far with 3pm–6pm hours (adultInKidsTime above), so those hours are always free
+  const freeHours = kidsFreeHours(start, hours)
   const junior = freeHours > 0 // only marked under-18 when free hours actually apply
   const payment = (hours - freeHours) * RATE_PER_HOUR
   const slip = b.depositSlip && String(b.depositSlip).startsWith('/uploads/slips/') ? b.depositSlip : null
@@ -1011,6 +1075,8 @@ app.post('/api/slots', async (req, res) => {
   if (slip && !bank) return res.status(400).json({ error: 'Please enter the bank name of the deposit slip.' })
   const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
   if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  const twice = duplicatePlayer(players)
+  if (twice) return res.status(400).json({ error: `${twice} is entered more than once. Each player must be a different person.` })
 
   const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
   const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null
@@ -1031,6 +1097,9 @@ app.post('/api/slots', async (req, res) => {
     if (await heldByOthers(conn, b.courtId, b.date, start, end, userId, true)) {
       await conn.rollback(); return res.status(409).json({ error: PROCESSING, processing: true })
     }
+    // Same time slot at most twice a week per member (Monday–Sunday)
+    const weekErr = await weekLimitError(conn, userId, b.date, start)
+    if (weekErr) { await conn.rollback(); return res.status(409).json({ error: weekErr, weekLimit: true }) }
 
     // "Edit" on a cancelled booking: its deposit slip (with slip no., bank, reference no.) carries
     // over and pays for the new slot again; the old booking is removed afterwards
@@ -1122,7 +1191,8 @@ app.put('/api/slots/:id', async (req, res) => {
     console.error(err)
     return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
   }
-  const freeHours = b.junior === true ? kidsFreeHours(start, hours) : 0
+  // Only under-18 members can get this far with 3pm–6pm hours (adultInKidsTime above), so those hours are always free
+  const freeHours = kidsFreeHours(start, hours)
   const junior = freeHours > 0
   const payment = (hours - freeHours) * RATE_PER_HOUR
   const slip = b.depositSlip && String(b.depositSlip).startsWith('/uploads/slips/') ? b.depositSlip : null
@@ -1133,6 +1203,8 @@ app.put('/api/slots/:id', async (req, res) => {
   if (slip && !bank) return res.status(400).json({ error: 'Please enter the bank name of the deposit slip.' })
   const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
   if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  const twice = duplicatePlayer(players)
+  if (twice) return res.status(400).json({ error: `${twice} is entered more than once. Each player must be a different person.` })
   const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
   const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null
   const end = start + hours
@@ -1156,6 +1228,11 @@ app.put('/api/slots/:id', async (req, res) => {
     if (clash) { await conn.rollback(); return res.status(409).json({ error: 'Sorry — that time was just booked by someone else. Please choose another slot.' }) }
     if (await heldByOthers(conn, b.courtId, b.date, start, end, userId, true)) {
       await conn.rollback(); return res.status(409).json({ error: PROCESSING, processing: true })
+    }
+    // Same time slot at most twice a week for whoever made this booking (this booking itself doesn't count)
+    if (row.user_id) {
+      const weekErr = await weekLimitError(conn, row.user_id, b.date, start, row.id)
+      if (weekErr) { await conn.rollback(); return res.status(409).json({ error: weekErr, weekLimit: true }) }
     }
 
     const held = refundableAmount(row) // what this booking has already been paid
@@ -1192,6 +1269,8 @@ app.put('/api/slots/:id', async (req, res) => {
         teamName([1, 2]), teamName([3, 4]), payment, creditUsed, junior ? 1 : 0,
         String(b.phone || '').slice(0, 20) || null, slipFinal, slip ? refNo : (refNo || row.reference_no || null),
         slip ? bank : (bank || row.bank_name || null), slip ? 1 : 0, slip ? 1 : 0, row.id])
+    // Moved to a free slot (under-18 kids time): nothing to pay, so it's confirmed straight away
+    if (payment === 0) await conn.query('UPDATE slot SET payment_received = 1, payment_received_at = COALESCE(payment_received_at, NOW()) WHERE id = ?', [row.id])
     await conn.query('DELETE FROM slot_holds WHERE user_id = ?', [userId]) // saved: no longer "processing"
     await conn.commit()
     const [[updated]] = await pool.query('SELECT * FROM slot WHERE id = ?', [row.id])
@@ -1687,6 +1766,179 @@ app.get('/api/admin/ledger', async (req, res) => {
   }
 })
 
+// ── Vouchers (expenses) ────────────────────────────────────────
+// Reference no. stored in the database (voucher_no); the fallback only covers a row saved before it existed
+const voucherNo = r => r.voucher_no || `VCH-${String(r.id).padStart(4, '0')}`
+const toVoucher = r => ({
+  id: String(r.id), voucherNo: voucherNo(r), date: r.date instanceof Date ? localDate(r.date) : String(r.date).slice(0, 10),
+  category: r.category, amount: Number(r.amount), paidTo: r.paid_to || '', method: r.method || '', chequeNo: r.cheque_no || '', bankName: r.bank_name || '',
+  notes: r.notes || '', createdAt: r.created_at,
+})
+const VOUCHER_METHODS = ['Cash', 'Cheque']
+const localDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// Body: { date (issue date), category, amount, paidTo, method: Cash | Cheque, chequeNo, notes } → error message or null
+function voucherInvalid(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date || '')) return 'Please choose the issue date.'
+  if (!String(v.category || '').trim()) return 'Please choose a category.'
+  const amount = Number(v.amount)
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 99999999) return 'Please enter an amount greater than 0.'
+  if (!String(v.paidTo || '').trim()) return 'Please enter who it is paid to.'
+  if (!VOUCHER_METHODS.includes(v.method)) return 'Please choose Cash or Cheque.'
+  if (v.method === 'Cheque' && !String(v.chequeNo || '').trim()) return 'Please enter the cheque number.'
+  if (v.method === 'Cheque' && !String(v.bankName || '').trim()) return 'Please enter the bank name of the cheque.'
+  return null
+}
+const voucherValues = v => [v.date, String(v.category).trim().slice(0, 50), Math.round(Number(v.amount) * 100) / 100,
+  String(v.paidTo || '').trim().slice(0, 100) || null, v.method,
+  v.method === 'Cheque' ? String(v.chequeNo).trim().toUpperCase().slice(0, 30) : null,
+  v.method === 'Cheque' ? String(v.bankName).trim().slice(0, 60) : null, String(v.notes || '').trim().slice(0, 255) || null]
+
+// Choices for the voucher form: built-in ones + ones the admin added + any already used on a voucher
+const VOUCHER_DEFAULTS = {
+  category: ['Salary', 'Maintenance', 'Entertainment', 'Electricity', 'Water', 'Equipment (balls, rackets)', 'Cleaning', 'Repairs', 'Rent', 'Internet / phone', 'Other'],
+  payee: ['Secretary', 'Coach', 'Court attendant', 'Guard', 'Cleaner', 'Accountant', 'K-Electric', 'KWSC (water)'],
+}
+async function voucherOptions() {
+  const [added] = await pool.query('SELECT kind, name FROM voucher_options ORDER BY name')
+  const [used] = await pool.query('SELECT DISTINCT category, paid_to FROM vouchers')
+  const list = (kind, extra) => {
+    const seen = new Set(), out = []
+    for (const n of [...VOUCHER_DEFAULTS[kind], ...added.filter(a => a.kind === kind).map(a => a.name), ...extra])
+      if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n) }
+    return out
+  }
+  return { categories: list('category', used.map(u => u.category)), payees: list('payee', used.map(u => u.paid_to)) }
+}
+
+app.get('/api/admin/voucher-options', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try { res.json(await voucherOptions()) } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load the lists.' })
+  }
+})
+
+// Body: { kind: 'category' | 'payee', name } → { categories, payees }
+app.post('/api/admin/voucher-options', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const kind = req.body?.kind
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ')
+  if (!['category', 'payee'].includes(kind)) return res.status(400).json({ error: 'Invalid list.' })
+  if (!name || name.length > (kind === 'category' ? 50 : 100)) return res.status(400).json({ error: 'Please type a name (not too long).' })
+  try {
+    await pool.query('INSERT IGNORE INTO voucher_options (kind, name) VALUES (?, ?)', [kind, name])
+    res.json(await voucherOptions())
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not add it. Please try again.' })
+  }
+})
+
+app.get('/api/admin/vouchers', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    const [rows] = await pool.query('SELECT * FROM vouchers ORDER BY date DESC, id DESC')
+    res.json({ vouchers: rows.map(toVoucher) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load vouchers.' })
+  }
+})
+
+app.post('/api/admin/vouchers', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const bad = voucherInvalid(req.body || {})
+  if (bad) return res.status(400).json({ error: bad })
+  const conn = await pool.getConnection()
+  try {
+    // Saved together with its reference no. (VCH-<year>-<id>), so a voucher never exists without one
+    await conn.beginTransaction()
+    const [r] = await conn.query('INSERT INTO vouchers (date, category, amount, paid_to, method, cheque_no, bank_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', voucherValues(req.body))
+    await conn.query("UPDATE vouchers SET voucher_no = CONCAT('VCH-', YEAR(NOW()), '-', LPAD(id, 4, '0')) WHERE id = ?", [r.insertId])
+    await conn.commit()
+    const [[row]] = await pool.query('SELECT * FROM vouchers WHERE id = ?', [r.insertId])
+    res.status(201).json({ voucher: toVoucher(row) })
+  } catch (err) {
+    await conn.rollback().catch(() => {})
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the voucher.' })
+  } finally {
+    conn.release()
+  }
+})
+
+app.put('/api/admin/vouchers/:id', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const bad = voucherInvalid(req.body || {})
+  if (bad) return res.status(400).json({ error: bad })
+  try {
+    const [r] = await pool.query('UPDATE vouchers SET date = ?, category = ?, amount = ?, paid_to = ?, method = ?, cheque_no = ?, bank_name = ?, notes = ? WHERE id = ?',
+      [...voucherValues(req.body), req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ error: 'Voucher not found.' })
+    const [[row]] = await pool.query('SELECT * FROM vouchers WHERE id = ?', [req.params.id])
+    res.json({ voucher: toVoucher(row) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the voucher.' })
+  }
+})
+
+app.delete('/api/admin/vouchers/:id', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    await pool.query('DELETE FROM vouchers WHERE id = ?', [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not delete the voucher.' })
+  }
+})
+
+// Profit & Loss between two dates (inclusive). Income = payment of bookings that are not cancelled and
+// whose payment is received (by booking date); expenses = vouchers (by voucher date).
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD → { months: [{ month, income, expenses, bookings, vouchers }], byCourt, byCategory, pendingIncome }
+app.get('/api/admin/pnl', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const { from, to } = req.query
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '') || from > to)
+    return res.status(400).json({ error: 'Please choose a valid date range.' })
+  try {
+    const [income] = await pool.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m') AS month, court, COUNT(*) AS n, SUM(payment) AS total
+       FROM slot WHERE date BETWEEN ? AND ? AND status <> 'cancelled' AND payment_received = 1 AND payment > 0
+       GROUP BY month, court`, [from, to])
+    const [[pending]] = await pool.query(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(payment), 0) AS total FROM slot
+       WHERE date BETWEEN ? AND ? AND status <> 'cancelled' AND payment_received = 0 AND payment > 0`, [from, to])
+    const [expenses] = await pool.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m') AS month, category, COUNT(*) AS n, SUM(amount) AS total
+       FROM vouchers WHERE date BETWEEN ? AND ? GROUP BY month, category`, [from, to])
+
+    const months = new Map()
+    for (let d = new Date(`${from.slice(0, 7)}-01T00:00`); localDate(d).slice(0, 7) <= to.slice(0, 7); d.setMonth(d.getMonth() + 1))
+      months.set(localDate(d).slice(0, 7), { month: localDate(d).slice(0, 7), income: 0, expenses: 0, bookings: 0, vouchers: 0 })
+    const byCourt = {}, byCategory = {}
+    for (const r of income) {
+      const m = months.get(r.month); if (m) { m.income += Number(r.total); m.bookings += Number(r.n) }
+      byCourt[r.court || 'Other'] = (byCourt[r.court || 'Other'] || 0) + Number(r.total)
+    }
+    for (const r of expenses) {
+      const m = months.get(r.month); if (m) { m.expenses += Number(r.total); m.vouchers += Number(r.n) }
+      byCategory[r.category] = (byCategory[r.category] || 0) + Number(r.total)
+    }
+    res.json({
+      months: [...months.values()],
+      byCourt: Object.entries(byCourt).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total),
+      byCategory: Object.entries(byCategory).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total),
+      pendingIncome: { count: Number(pending.n), total: Number(pending.total) },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not work out profit & loss.' })
+  }
+})
+
 // Admin edits a booking: court, date, start time, players and phone. Length and payment stay as
 // they are. Body: { courtId, courtName, date, startHour, phone, players: [{ n, name, cmNo }] } → { booking }
 app.put('/api/admin/slots/:id', async (req, res) => {
@@ -1696,6 +1948,8 @@ app.put('/api/admin/slots/:id', async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '') || !b.courtId) return res.status(400).json({ error: 'Please choose a court and date.' })
   const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
   if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  const twice = duplicatePlayer(players)
+  if (twice) return res.status(400).json({ error: `${twice} is entered more than once. Each player must be a different person.` })
   const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
   if (!byN[1]) return res.status(400).json({ error: 'Player 1 is required.' })
   const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null

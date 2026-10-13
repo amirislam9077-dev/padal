@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Clock, Users, ArrowRight, MapPin, Phone, CheckCircle, Star, Shield, Zap } from 'lucide-react'
+import { Calendar, Clock, Users, ArrowRight, MapPin, Phone, CheckCircle, Star, Shield, Zap, Info, CalendarCheck, Receipt } from 'lucide-react'
 import { getCourts, RATE_PER_HOUR } from '../store'
 import EventsSection from '../components/EventsSection'
 import { OtLogo } from '../components/Layout'
@@ -329,6 +329,36 @@ export default function Home() {
             </div>
           ))}
         </div>
+
+        {/* Booking rules — the same rules the booking page and the server enforce */}
+        <div className="mt-10 rounded-2xl p-5 sm:p-6" style={{ background: 'rgba(255,138,31,0.06)', border: '1.5px solid rgba(255,138,31,0.45)' }}>
+          <h3 className="flex items-center gap-2 font-black text-lg text-white mb-4">
+            <Info size={19} color="#FF8A1F" /> Booking Rules
+          </h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {[
+              { icon: CalendarCheck, color: '#FF8A1F', title: 'Same time twice a week',
+                desc: 'Each member can book the same time (e.g. 8–9 PM) at most twice a week, Monday to Sunday, on either court. Every other time (9–10 PM, 10–11 PM …) can also be booked twice. A cancelled booking doesn’t count.' },
+              { icon: Clock, color: '#34D399', title: 'Kids time 3 PM – 6 PM',
+                desc: 'Only under-18 members can book 3–6 PM — and it’s free for them. No deposit slip needed.' },
+              { icon: Users, color: '#7EA2FF', title: 'Different players',
+                desc: 'Up to 4 players per booking, and each player must be a different person.' },
+              { icon: Receipt, color: '#FFC53D', title: 'Deposit slip for paid bookings',
+                desc: 'Attach the deposit slip with the bank name and reference no. The booking is confirmed once the club checks the payment.' },
+            ].map(({ icon: Icon, color, title, desc }) => (
+              <div key={title} className="flex gap-3 rounded-xl p-3.5" style={{ background: CARD, border: `1px solid ${LINE}` }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${color}1F`, border: `1px solid ${color}55` }}>
+                  <Icon size={16} color={color} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-white text-sm leading-tight mb-1">{title}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: MUTED }}>{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="text-center mt-10">
           <Link to="/book"
             className="ot-btn inline-flex items-center gap-2 font-semibold px-7 py-3.5 rounded-lg text-sm"

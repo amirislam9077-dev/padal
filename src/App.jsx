@@ -17,6 +17,8 @@ import AdminEvents from './pages/AdminEvents'
 import AdminCalendar from './pages/AdminCalendar'
 import AdminScale from './pages/AdminScale'
 import AdminLedger from './pages/AdminLedger'
+import AdminProfitLoss from './pages/AdminProfitLoss'
+import AdminVouchers from './pages/AdminVouchers'
 import Complaints from './pages/Complaints'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -59,6 +61,8 @@ export default function App() {
           <Route path="/admin/courts" element={<AdminCourts />} />
           <Route path="/admin/events" element={<AdminEvents />} />
           <Route path="/admin/ledger" element={<AdminLedger />} />
+          <Route path="/admin/profit-loss" element={<AdminProfitLoss />} />
+          <Route path="/admin/vouchers" element={<AdminVouchers />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -561,7 +561,7 @@ function BookingRow({ booking, onScore, onConfirmScore, today, isMe, myTeam, isO
   const score = booking.score?.sets?.length ? booking.score : null
   const { pending, canConfirm, waitingTeams } = scoreConfirmState(booking, isMe)
   const result = score && !pending ? scoreResult(score.sets) : null
-  const resultText = pending ? 'Pending' : result?.draw ? 'Draw' : !result?.winner ? '—'
+  const resultText = pending ? 'Score Pending' : result?.draw ? 'Draw' : !result?.winner ? '—'
     : myTeam ? (result.winner === myTeam ? 'Won' : 'Lost')
     : `Team ${result.winner} won`
   const cell = 'px-2 py-1.5 align-middle'
