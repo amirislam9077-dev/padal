@@ -50,6 +50,10 @@ const card = { background: '#FFFFFF', border: `1px solid ${BORDER}`, borderRadiu
 const sectionLabel = { fontSize: '11px', fontWeight: '700', letterSpacing: '0.08em', textTransform: 'uppercase', color: LGRAY, marginBottom: '10px', display: 'block' }
 const inputStyle = { width: '100%', border: `1.5px solid ${BORDER}`, borderRadius: '10px', padding: '10px 12px', fontSize: '14px', outline: 'none', color: NAVY, background: '#F8FAFC' }
 const compactInput = { ...inputStyle, padding: '7px 12px' }
+// Contact phone, deposit slip, bank name, reference no.: highlighted so they're not missed
+const KEY_BLUE = '#3B82F6'
+const keyLabel = { ...sectionLabel, fontSize: '12.5px', fontWeight: '800', letterSpacing: '0.04em', color: NAVY, marginBottom: '6px' }
+const keyInput = { ...compactInput, height: '40px', background: 'white', border: `2px solid #93C5FD`, fontWeight: 600, boxShadow: '0 1px 3px rgba(59,130,246,0.12)' }
 
 // Toast popup component
 function Toast({ message, onClose }) {
@@ -829,16 +833,30 @@ export default function BookCourt() {
           <div>
           {/* ── Time slots grouped by part of day ── */}
           <div ref={timeSection} className="mb-4" style={{ scrollMarginTop: "140px" }}>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 mb-2">
-              <span style={{ ...sectionLabel, marginBottom: 0 }}>
-                Select Time <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600 }}>· open {formatHourShort(TIME_SLOTS[0])} – {formatHourShort(TIME_SLOTS[TIME_SLOTS.length - 1] + 1)}</span>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
+              <span className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 text-sm font-black uppercase tracking-wide" style={{ color: NAVY }}>
+                  <Clock size={16} strokeWidth={2.5} /> Select Time
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#E0E7FF', color: '#3730A3' }}>
+                  Open {formatHourShort(TIME_SLOTS[0])} – {formatHourShort(TIME_SLOTS[TIME_SLOTS.length - 1] + 1)}
+                </span>
               </span>
+              {/* Legend: each chip looks like the slot button it explains */}
               {selectedDate && (
-                <div className="flex gap-3 text-[11px] font-semibold" style={{ color: LGRAY }}>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: NAVY }} />Selected</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#F87171' }} />Booked</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#F59E0B' }} />Processing</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#CBD5E1' }} />Available</span>
+                <div className="flex flex-wrap gap-1.5 text-[11px] font-bold">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: NAVY, color: 'white', border: `1.5px solid ${NAVY}` }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: 'white' }} />Selected
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: '#FEF2F2', color: '#DC2626', border: '1.5px solid #FCA5A5' }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#EF4444' }} />Booked
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: '#FFFBEB', color: '#B45309', border: '1.5px solid #FCD34D' }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#F59E0B' }} />Processing
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: 'white', color: '#334155', border: `1.5px solid ${BORDER}` }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#94A3B8' }} />Available
+                  </span>
                 </div>
               )}
             </div>
@@ -1086,27 +1104,33 @@ export default function BookCourt() {
                 Players 2–4 are optional — type a name or CM No. and pick the member from the list.
               </p>
 
-              {/* Wide screens: contact phone | deposit slip | total, then bank name | reference no. */}
-              <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3 mb-3 items-end">
+              {/* Wide screens: contact phone | deposit slip | total, then bank name | reference no.
+                  Highlighted blue panel so these details aren't missed */}
+              <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3 mb-3 items-end p-3 sm:p-4 rounded-2xl"
+                style={{ background: '#EFF6FF', border: `2px solid #BFDBFE`, boxShadow: 'inset 4px 0 0 #3B82F6' }}>
+                <p className="sm:col-span-2 md:col-span-6 order-first flex items-center gap-2 text-sm font-black -mb-1" style={{ color: '#1D4ED8' }}>
+                  <Landmark size={15} /> Payment &amp; Contact Details
+                  <span className="text-[11px] font-semibold" style={{ color: '#64748B' }}>— please fill these in carefully</span>
+                </p>
                 <div className="md:col-span-2">
-                  <label style={{ ...sectionLabel, marginBottom: '6px' }}>Contact Phone</label>
+                  <label style={{ ...keyLabel }}>Contact Phone</label>
                   <div className="relative">
-                    <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
+                    <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: KEY_BLUE }} />
                     <input type="tel" placeholder="0300 1234567" value={playerPhone}
                       onChange={e => setPlayerPhone(e.target.value)}
-                      style={{ ...compactInput, paddingLeft: '34px' }} />
+                      style={{ ...keyInput, paddingLeft: '34px' }} />
                   </div>
                 </div>
 
                 {/* Deposit slip (required unless the booking is free) */}
                 <div className="min-w-0 md:col-span-2">
-                  <label style={{ ...sectionLabel, marginBottom: '6px', color: slipError ? '#DC2626' : NAVY }} title={`JPG, PNG, WEBP or PDF · max ${MAX_SLIP_MB} MB`}>
+                  <label style={{ ...keyLabel, color: slipError ? '#DC2626' : NAVY }} title={`JPG, PNG, WEBP or PDF · max ${MAX_SLIP_MB} MB`}>
                     Deposit Slip{slipNeeded ? ' *' : ''} <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: LGRAY }}>
                       ({slipNeeded ? 'required' : cost.total === 0 ? 'not needed · free' : 'not needed · paid'})
                     </span>
                   </label>
                   {slip ? (
-                    <div className="flex items-center gap-2 px-2 rounded-xl" style={{ height: '38px', background: '#ECFDF5', border: '1.5px solid #A7F3D0' }}>
+                    <div className="flex items-center gap-2 px-2 rounded-xl" style={{ height: '40px', background: '#ECFDF5', border: '2px solid #6EE7B7' }}>
                       {slip.type === 'application/pdf'
                         ? <span className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{ background: '#FEE2E2', color: '#DC2626' }}><FileText size={14} /></span>
                         : <img src={slip.path} alt="Deposit slip" className="w-7 h-7 rounded-md object-cover shrink-0" style={{ border: `1px solid ${BORDER}` }} />}
@@ -1121,8 +1145,8 @@ export default function BookCourt() {
                   ) : (
                     <button type="button" onClick={() => slipInput.current?.click()} disabled={slipBusy}
                       title="JPG, PNG, WEBP or PDF"
-                      className="w-full flex items-center justify-center gap-2 px-3 rounded-xl text-sm font-semibold"
-                      style={{ height: '38px', border: `1.5px dashed ${slipError ? '#DC2626' : '#B6C4D6'}`, background: slipError ? '#FEF2F2' : '#F8FAFC', color: slipError ? '#DC2626' : NAVY }}>
+                      className="w-full flex items-center justify-center gap-2 px-3 rounded-xl text-sm font-black"
+                      style={{ height: '40px', border: `2px dashed ${slipError ? '#DC2626' : KEY_BLUE}`, background: slipError ? '#FEF2F2' : '#DBEAFE', color: slipError ? '#DC2626' : '#1D4ED8' }}>
                       <Paperclip size={15} /> {slipBusy ? 'Uploading…' : 'Attach deposit slip'}
                     </button>
                   )}
@@ -1131,20 +1155,20 @@ export default function BookCourt() {
 
                 {/* Bank name + reference no. of the deposit slip (required with a newly attached slip) */}
                 <div className="min-w-0 md:col-span-3 order-last">
-                  <label htmlFor="bank-name" style={{ ...sectionLabel, marginBottom: '6px', color: refError && !bankName.trim() ? '#DC2626' : NAVY }}>
+                  <label htmlFor="bank-name" style={{ ...keyLabel, color: refError && !bankName.trim() ? '#DC2626' : NAVY }}>
                     Bank Name{refNeeded ? ' *' : ''} <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: LGRAY }}>
                       ({refNeeded ? 'required' : 'of the slip'})
                     </span>
                   </label>
                   <div className="relative">
-                    <Landmark size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: LGRAY }} />
+                    <Landmark size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: KEY_BLUE }} />
                     <select id="bank-name" value={otherBank ? 'other' : bankName}
                       onChange={e => {
                         const v = e.target.value
                         setOtherBank(v === 'other'); setBankName(v === 'other' ? '' : v); setRefError('')
                       }}
-                      style={{ ...compactInput, paddingLeft: '34px', cursor: 'pointer', color: bankName || otherBank ? NAVY : LGRAY,
-                        borderColor: refError && !bankName.trim() ? '#DC2626' : BORDER, background: refError && !bankName.trim() ? '#FEF2F2' : compactInput.background }}>
+                      style={{ ...keyInput, paddingLeft: '34px', cursor: 'pointer', color: bankName || otherBank ? NAVY : LGRAY,
+                        borderColor: refError && !bankName.trim() ? '#DC2626' : '#93C5FD', background: refError && !bankName.trim() ? '#FEF2F2' : keyInput.background }}>
                       <option value="">Select bank</option>
                       {BANK_GROUPS.map(g => (
                         <optgroup key={g.label} label={g.label}>
@@ -1157,21 +1181,21 @@ export default function BookCourt() {
                   {otherBank && (
                     <input type="text" value={bankName} maxLength={60} placeholder="Type the bank name" autoFocus autoComplete="off"
                       onChange={e => { setBankName(e.target.value); setRefError('') }}
-                      className="mt-1.5" style={{ ...compactInput, borderColor: refError && !bankName.trim() ? '#DC2626' : BORDER }} />
+                      className="mt-1.5" style={{ ...keyInput, borderColor: refError && !bankName.trim() ? '#DC2626' : '#93C5FD' }} />
                   )}
                 </div>
 
                 <div className="min-w-0 md:col-span-3 order-last">
-                  <label htmlFor="ref-no" style={{ ...sectionLabel, marginBottom: '6px', color: refError && bankName.trim() && !refNo.trim() ? '#DC2626' : NAVY }}>
+                  <label htmlFor="ref-no" style={{ ...keyLabel, color: refError && bankName.trim() && !refNo.trim() ? '#DC2626' : NAVY }}>
                     Reference No.{refNeeded ? ' *' : ''} <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: LGRAY }}>
                       ({refNeeded ? 'required' : 'on the slip'})
                     </span>
                   </label>
                   <div className="relative">
-                    <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: LGRAY }} />
+                    <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: KEY_BLUE }} />
                     <input id="ref-no" type="text" value={refNo} maxLength={50} placeholder="e.g. TRX-123456" autoComplete="off"
                       onChange={e => { setRefNo(e.target.value.toUpperCase()); setRefError('') }}
-                      style={{ ...compactInput, paddingLeft: '34px', ...(refError && bankName.trim() && !refNo.trim() ? { borderColor: '#DC2626', background: '#FEF2F2' } : {}) }} />
+                      style={{ ...keyInput, paddingLeft: '34px', ...(refError && bankName.trim() && !refNo.trim() ? { borderColor: '#DC2626', background: '#FEF2F2' } : {}) }} />
                   </div>
                 </div>
 
