@@ -208,6 +208,15 @@ async function initDb() {
     await pool.query('ALTER TABLE padalcreate DROP INDEX uniq_member_name, ADD INDEX idx_member_name (membership_no, full_name)')
   if (!accHave.has('date_of_birth'))
     await pool.query('ALTER TABLE padalcreate ADD COLUMN date_of_birth DATE NULL AFTER phone_number')
+  // Signup approval: new accounts wait as 'pending' until the admin approves them (older accounts count as approved)
+  if (!accHave.has('status'))
+    await pool.query("ALTER TABLE padalcreate ADD COLUMN status VARCHAR(10) NOT NULL DEFAULT 'approved' AFTER password_hash")
+  // Member dues (Rs.), entered by the admin; at or above DUES_LIMIT the member can't book
+  if (!accHave.has('dues'))
+    await pool.query('ALTER TABLE padalcreate ADD COLUMN dues DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER status')
+  // Suspended by the admin: the member can't book
+  if (!accHave.has('suspended'))
+    await pool.query('ALTER TABLE padalcreate ADD COLUMN suspended TINYINT(1) NOT NULL DEFAULT 0 AFTER dues')
   await pool.query(`
     CREATE TABLE IF NOT EXISTS otp_codes (
       email VARCHAR(150) PRIMARY KEY,
@@ -439,7 +448,7 @@ app.post('/api/signup', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10)
     const [result] = await pool.query(
-      'INSERT INTO padalcreate (full_name, username, membership_no, email_address, phone_number, date_of_birth, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      "INSERT INTO padalcreate (full_name, username, membership_no, email_address, phone_number, date_of_birth, password_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
       [cleanName(name), username.trim(), membershipNo.trim(), email, toE164(phone), dob, hash]
     )
     await pool.query('DELETE FROM otp_codes WHERE email = ?', [email])
@@ -448,8 +457,10 @@ app.post('/api/signup', async (req, res) => {
       await fs.writeFile(path.join(UPLOADS_DIR, file), picture.buffer)
       await pool.query('UPDATE padalcreate SET picture = ? WHERE id = ?', [`/uploads/${file}`, result.insertId])
     }
-    const [rows] = await pool.query('SELECT * FROM padalcreate WHERE id = ?', [result.insertId])
-    res.status(201).json({ user: toSession(rows[0]) })
+    // No session yet: the member can sign in only after the admin approves the account
+    res.status(201).json({ pending: true, email })
+    notifyAdminOfSignup({ name: cleanName(name), username: username.trim(), membershipNo: membershipNo.trim(), email })
+      .catch(err => console.error('New-signup email to admin failed:', err))
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
       return res.status(409).json({ error: USERNAME_TAKEN, usernameTaken: true }) // User ID is the only unique field left
@@ -470,6 +481,10 @@ app.post('/api/login', async (req, res) => {
       return res.status(404).json({ error: NO_ACCOUNT, noAccount: true })
     if (!(await bcrypt.compare(password, row.password_hash)))
       return res.status(401).json({ error: 'Incorrect password. Please try again.' })
+    if (row.status === 'pending')
+      return res.status(403).json({ error: 'Your sign-up is waiting for admin approval. You will get an email once it is approved.', pending: true })
+    if (row.status === 'rejected')
+      return res.status(403).json({ error: 'Your sign-up was not approved. Please contact the club office.', rejected: true })
     res.json({ user: toSession(row) })
   } catch (err) {
     console.error(err)
@@ -589,6 +604,11 @@ app.post('/api/forgot/reset-password', async (req, res) => {
     if (wrong) return res.status(400).json({ error: wrong })
     await pool.query('UPDATE padalcreate SET password_hash = ? WHERE id = ?', [await bcrypt.hash(password, 10), row.id])
     await pool.query('DELETE FROM recovery_codes WHERE email = ?', [row.email_address])
+    // Not signed in until the admin has approved the account
+    if (row.status === 'pending')
+      return res.status(403).json({ error: 'Your password has been changed, but your sign-up is still waiting for admin approval. You can sign in once it is approved.', pending: true })
+    if (row.status === 'rejected')
+      return res.status(403).json({ error: 'Your password has been changed, but your sign-up was not approved. Please contact the club office.', rejected: true })
     res.json({ user: toSession(row) })
   } catch (err) {
     console.error(err)
@@ -747,7 +767,7 @@ app.get('/api/members/search', async (req, res) => {
     // Matches that start with the typed text come first
     const [rows] = await pool.query(
       `SELECT id, full_name, membership_no, picture FROM padalcreate
-       WHERE ${column} LIKE ?
+       WHERE status = 'approved' AND ${req.query.u18 === '1' ? 'date_of_birth IS NOT NULL AND TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 18 AND ' : ''}${column} LIKE ?
        ORDER BY (${column} LIKE ?) DESC, ${column}, full_name LIMIT ${q ? 20 : 500}`,
       [like, like.slice(1)])
     res.json({ members: rows.map(r => ({ id: String(r.id), name: r.full_name, membershipNo: r.membership_no, picture: r.picture })) })
@@ -798,7 +818,38 @@ const kidsFreeHours = (start, hours) => {
 // Admin panel login — set in .env (ADMIN_EMAIL can list several emails, comma-separated)
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 const ADMIN_EMAIL = ADMIN_EMAILS.join(',')
+
+// Website address used in emails (sign-in link)
+const SITE_URL = (process.env.SITE_URL || 'https://padal-olive.vercel.app').replace(/\/+$/, '')
+
+// A new member signed up: let the admin(s) know there is a sign-up to approve
+async function notifyAdminOfSignup({ name, username, membershipNo, email }) {
+  if (!ADMIN_EMAILS.length) return
+  const text = `New sign-up waiting for approval:\n\nName: ${name}\nUser ID: ${username}\nMembership No.: ${membershipNo}\nEmail: ${email}\n\n`
+    + `Approve or reject it in the admin panel → Signed-up Members: ${SITE_URL}/admin/members`
+  await Promise.all(ADMIN_EMAILS.map(to => sendMail({ to, subject: `New sign-up to approve: ${name} (${membershipNo})`, text })))
+}
+
+// Tells the member their sign-up was approved (they can sign in and book) or not approved
+async function sendSignupDecision(row, status) {
+  const approved = status === 'approved'
+  const subject = approved ? 'Your NNG Trust sign-up is approved' : 'Your NNG Trust sign-up was not approved'
+  const text = approved
+    ? `Dear ${row.full_name},\n\nYour sign-up for NNG Trust Padel has been approved. You can now sign in with your User ID (${row.username}) and start booking courts.\n\nSign in: ${SITE_URL}/login\n\nNorth Nazimabad Gymkhana Trust`
+    : `Dear ${row.full_name},\n\nSorry, your sign-up for NNG Trust Padel was not approved. Please contact the club office for details.\n\nNorth Nazimabad Gymkhana Trust`
+  await sendMail({ to: row.email_address, subject, text })
+}
+
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
+// Password asked again before the admin edits or deletes a booking or a member
+// (ADMIN_ACTION_PASSWORD in .env; the admin login password when it isn't set)
+const ACTION_PASSWORD = process.env.ADMIN_ACTION_PASSWORD || ADMIN_PASSWORD
+function actionPasswordOk(req) {
+  const given = Buffer.from(String(req.get('x-admin-password') || req.body?.password || ''))
+  const expected = Buffer.from(ACTION_PASSWORD)
+  return !!ACTION_PASSWORD && given.length === expected.length && crypto.timingSafeEqual(given, expected)
+}
+const WRONG_PASSWORD = { error: 'Incorrect password. The change was not made.', badPassword: true }
 // Tied to the admin email + password, so changing them logs out old admin sessions
 const adminToken = () => crypto.createHmac('sha256', SESSION_SECRET).update(`admin|${ADMIN_EMAIL}|${ADMIN_PASSWORD}`).digest('hex')
 const hourToTime = h => `${String(h).padStart(2, '0')}:00:00`
@@ -1045,6 +1096,16 @@ function duplicatePlayer(players) {
   return null
 }
 
+// Member dues (entered by the admin on Signed-up Members): at or above this amount the member can't make a new booking
+const DUES_LIMIT = 20000
+const duesText = dues => `Your booking cannot be made because you have payment dues of Rs. ${Number(dues).toLocaleString('en-US')}. Please clear your dues with the club office, then book again.`
+const SUSPENDED_TEXT = 'Your booking cannot be made because your membership is suspended. Please contact the club office.'
+// { dues, suspended } of a member — either one can block new bookings
+async function memberBlock(userId) {
+  const [[row]] = await pool.query('SELECT dues, suspended FROM padalcreate WHERE id = ?', [userId])
+  return { dues: Number(row?.dues || 0), suspended: !!row?.suspended }
+}
+
 // 3pm–6pm is for under-18 members only (age from date_of_birth in padalcreate; no date of birth = not allowed)
 const KIDS_ONLY = 'You are not applicable to book this slot. Only under-18 players can book this slot.'
 async function adultInKidsTime(userId, start, hours) {
@@ -1053,6 +1114,21 @@ async function adultInKidsTime(userId, start, hours) {
     'SELECT TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) AS age FROM padalcreate WHERE id = ?', [userId])
   return !(row?.age != null && row.age < 18)
 }
+
+// Under-18 free time: every player must be a registered member under 18 (found by name + CM No.).
+// Returns the name of the first player who isn't, or null.
+async function adultPlayerInKidsTime(players, start, hours) {
+  if (!kidsFreeHours(start, hours)) return null
+  for (const p of players) {
+    const [[row]] = await pool.query(
+      `SELECT TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) AS age FROM padalcreate
+       WHERE membership_no = ? AND full_name = ? AND status = 'approved' ORDER BY (date_of_birth IS NULL) LIMIT 1`,
+      [String(p.cmNo || '').trim().toUpperCase(), cleanName(String(p.name || ''))])
+    if (!(row?.age != null && row.age < 18)) return cleanName(String(p.name || ''))
+  }
+  return null
+}
+const kidsPlayerText = name => `${name} is not under 18. In the under-18 free time (3pm–6pm) all 4 players must be under-18 members.`
 
 // Create a booking. Body: { courtId, courtName, date, startHour, hours, phone, depositSlip, players: [{ n, name, cmNo }] }
 app.post('/api/slots', async (req, res) => {
@@ -1065,6 +1141,9 @@ app.post('/api/slots', async (req, res) => {
     return res.status(400).json({ error: 'Please choose a time between 3pm and 12am.' })
   if (b.date < localToday()) return res.status(400).json({ error: 'That date has already passed.' })
   try {
+    const { dues, suspended } = await memberBlock(userId)
+    if (suspended) return res.status(403).json({ error: SUSPENDED_TEXT, suspended: true })
+    if (dues >= DUES_LIMIT) return res.status(403).json({ error: duesText(dues), duesBlocked: true })
     if (await adultInKidsTime(userId, start, hours)) return res.status(403).json({ error: KIDS_ONLY, kidsOnly: true })
   } catch (err) {
     console.error(err)
@@ -1076,15 +1155,22 @@ app.post('/api/slots', async (req, res) => {
   const junior = freeHours > 0 // only marked under-18 when free hours actually apply
   const payment = (hours - freeHours) * RATE_PER_HOUR
   const slip = b.depositSlip && String(b.depositSlip).startsWith('/uploads/slips/') ? b.depositSlip : null
-  // Bank / transfer reference printed on the deposit slip
+  // Bank / transfer reference of the deposit slip (optional — the booking form no longer asks for it)
   const refNo = String(b.referenceNo || '').trim().slice(0, 50) || null
-  if (slip && !refNo) return res.status(400).json({ error: 'Please enter the reference no. of the deposit slip.' })
   const bank = String(b.bankName || '').trim().slice(0, 60) || null
-  if (slip && !bank) return res.status(400).json({ error: 'Please enter the bank name of the deposit slip.' })
   const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
   if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  // Padel is 2 vs 2: members must enter all 4 players, each with a CM No.
+  if (players.length < 4 || players.some(p => !String(p.cmNo || '').trim())) return res.status(400).json({ error: 'All 4 players are required — please enter the name and CM No. of each player.' })
   const twice = duplicatePlayer(players)
   if (twice) return res.status(400).json({ error: `${twice} is entered more than once. Each player must be a different person.` })
+  try {
+    const adult = await adultPlayerInKidsTime(players, start, hours)
+    if (adult) return res.status(403).json({ error: kidsPlayerText(adult), kidsOnly: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
+  }
 
   const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
   const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null
@@ -1204,15 +1290,22 @@ app.put('/api/slots/:id', async (req, res) => {
   const junior = freeHours > 0
   const payment = (hours - freeHours) * RATE_PER_HOUR
   const slip = b.depositSlip && String(b.depositSlip).startsWith('/uploads/slips/') ? b.depositSlip : null
-  // Bank / transfer reference printed on the deposit slip
+  // Bank / transfer reference of the deposit slip (optional — the booking form no longer asks for it)
   const refNo = String(b.referenceNo || '').trim().slice(0, 50) || null
-  if (slip && !refNo) return res.status(400).json({ error: 'Please enter the reference no. of the deposit slip.' })
   const bank = String(b.bankName || '').trim().slice(0, 60) || null
-  if (slip && !bank) return res.status(400).json({ error: 'Please enter the bank name of the deposit slip.' })
   const players = Array.isArray(b.players) ? b.players.filter(p => p?.name?.trim()).slice(0, 4) : []
   if (!players.length) return res.status(400).json({ error: 'Please add at least one player.' })
+  // Padel is 2 vs 2: members must enter all 4 players, each with a CM No.
+  if (players.length < 4 || players.some(p => !String(p.cmNo || '').trim())) return res.status(400).json({ error: 'All 4 players are required — please enter the name and CM No. of each player.' })
   const twice = duplicatePlayer(players)
   if (twice) return res.status(400).json({ error: `${twice} is entered more than once. Each player must be a different person.` })
+  try {
+    const adult = await adultPlayerInKidsTime(players, start, hours)
+    if (adult) return res.status(403).json({ error: kidsPlayerText(adult), kidsOnly: true })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Could not save the booking. Please try again.' })
+  }
   const byN = Object.fromEntries(players.map((p, i) => [Number(p.n) || i + 1, { name: cleanName(p.name).slice(0, 100), cm: String(p.cmNo || '').trim().toUpperCase().slice(0, 20) || null }]))
   const teamName = ns => ns.map(n => byN[n]?.name).filter(Boolean).join(' & ').slice(0, 100) || null
   const end = start + hours
@@ -1700,7 +1793,10 @@ app.get('/api/credit', async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Please log in again.', relogin: true })
   const [history] = await pool.query(
     'SELECT amount, reason, slot_id, created_at FROM credit_ledger WHERE user_id = ? ORDER BY id DESC LIMIT 20', [userId])
-  res.json({ balance: await creditBalance(pool, userId), history: history.map(h => ({ ...h, amount: Number(h.amount) })) })
+  // dues / duesLimit / suspended: the booking page shows a "can't book" notice when the member is blocked
+  const { dues, suspended } = await memberBlock(userId)
+  res.json({ balance: await creditBalance(pool, userId), history: history.map(h => ({ ...h, amount: Number(h.amount) })),
+    dues, duesLimit: DUES_LIMIT, suspended })
 })
 
 // Booking details for the emails, from a saved slot row ("Sat, 17 October 2026", "6pm–7pm")
@@ -1789,14 +1885,15 @@ app.get('/api/admin/members', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
   try {
     const [rows] = await pool.query(
-      `SELECT p.id, p.full_name, p.username, p.membership_no, p.email_address, p.phone_number, p.date_of_birth, p.picture, p.created_at,
+      `SELECT p.id, p.full_name, p.username, p.membership_no, p.email_address, p.phone_number, p.date_of_birth, p.picture, p.created_at, p.status, p.dues, p.suspended,
               TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age,
               (SELECT COUNT(*) FROM slot s WHERE s.user_id = p.id AND s.status <> 'cancelled') AS bookings
-       FROM padalcreate p ORDER BY p.id DESC`)
+       FROM padalcreate p ORDER BY (p.status = 'pending') DESC, p.id DESC`)
     res.json({ members: rows.map(r => ({
       id: String(r.id), name: r.full_name, username: r.username || '', membershipNo: r.membership_no, email: r.email_address,
       phone: r.phone_number, dob: r.date_of_birth instanceof Date ? localDate(r.date_of_birth) : (r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : ''),
       age: r.age == null ? null : Number(r.age), picture: r.picture || null, createdAt: r.created_at, bookings: Number(r.bookings),
+      status: r.status || 'approved', dues: Number(r.dues || 0), suspended: !!r.suspended,
     })) })
   } catch (err) {
     console.error(err)
@@ -1807,6 +1904,7 @@ app.get('/api/admin/members', async (req, res) => {
 // Admin edits a member. Body: { name, username, membershipNo, email, phone, dob } — the password is not changed here.
 app.put('/api/admin/members/:id', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  if (!actionPasswordOk(req)) return res.status(403).json(WRONG_PASSWORD)
   const b = req.body || {}
   const name = cleanName(String(b.name || ''))
   const username = String(b.username || '').trim()
@@ -1833,10 +1931,82 @@ app.put('/api/admin/members/:id', async (req, res) => {
   }
 })
 
+// The edit / delete password pop-up checks the password here first. Body: { password }
+app.post('/api/admin/verify-password', (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  if (!actionPasswordOk(req)) return res.status(403).json({ error: 'Incorrect password.', badPassword: true })
+  res.json({ ok: true })
+})
+
+// Admin sets a member's dues (Rs.). Body: { dues } — at or above DUES_LIMIT the member can't make new bookings
+app.put('/api/admin/members/:id/dues', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const dues = Number(req.body?.dues)
+  if (!Number.isFinite(dues) || dues < 0 || dues > 99999999) return res.status(400).json({ error: 'Please enter the dues as an amount of 0 or more.' })
+  try {
+    const [r] = await pool.query('UPDATE padalcreate SET dues = ? WHERE id = ?', [Math.round(dues * 100) / 100, req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ error: 'Member not found.' })
+    res.json({ ok: true, dues, blocked: dues >= DUES_LIMIT })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the dues.' })
+  }
+})
+
+// Admin suspends / un-suspends a member. Body: { suspended: true | false } — a suspended member can't book
+app.put('/api/admin/members/:id/suspend', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const suspended = req.body?.suspended === true
+  try {
+    const [r] = await pool.query('UPDATE padalcreate SET suspended = ? WHERE id = ?', [suspended ? 1 : 0, req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ error: 'Member not found.' })
+    res.json({ ok: true, suspended })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not save the suspension.' })
+  }
+})
+
+// Counts for the admin sidebar badges: sign-ups waiting for approval, and bookings whose payment
+// isn't ticked as received yet ("Processing" — not cancelled)
+app.get('/api/admin/counts', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  try {
+    const [[m]] = await pool.query("SELECT COUNT(*) AS n FROM padalcreate WHERE status = 'pending'")
+    const [[b]] = await pool.query("SELECT COUNT(*) AS n FROM slot WHERE status = 'confirmed' AND payment_received = 0")
+    res.json({ pendingMembers: Number(m.n), processingBookings: Number(b.n) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not load the counts.' })
+  }
+})
+
+// Admin approves or rejects a sign-up; the member gets an email either way.
+// 'pending' (tick removed) puts the account back to waiting — no email, and the member can't sign in.
+// Body: { status: 'approved' | 'rejected' | 'pending' }
+app.post('/api/admin/members/:id/status', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  const status = req.body?.status
+  if (!['approved', 'rejected', 'pending'].includes(status)) return res.status(400).json({ error: 'Status must be approved, rejected or pending.' })
+  try {
+    const [[row]] = await pool.query('SELECT * FROM padalcreate WHERE id = ?', [req.params.id])
+    if (!row) return res.status(404).json({ error: 'Member not found.' })
+    await pool.query('UPDATE padalcreate SET status = ? WHERE id = ?', [status, row.id])
+    let emailed = true
+    if (status !== 'pending')
+      try { await sendSignupDecision(row, status) } catch (err) { emailed = false; console.error('Sign-up decision email failed:', err) }
+    res.json({ ok: true, status, emailed })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Could not update the member.' })
+  }
+})
+
 // Admin deletes a member's account. Their bookings and advance-balance history stay (as records);
 // the booking still shows the player names typed on it.
 app.delete('/api/admin/members/:id', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  if (!actionPasswordOk(req)) return res.status(403).json(WRONG_PASSWORD)
   try {
     const [r] = await pool.query('DELETE FROM padalcreate WHERE id = ?', [req.params.id])
     if (!r.affectedRows) return res.status(404).json({ error: 'Member not found.' })
@@ -2025,6 +2195,7 @@ app.get('/api/admin/pnl', async (req, res) => {
 // they are. Body: { courtId, courtName, date, startHour, phone, players: [{ n, name, cmNo }] } → { booking }
 app.put('/api/admin/slots/:id', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  if (!actionPasswordOk(req)) return res.status(403).json(WRONG_PASSWORD)
   const b = req.body || {}
   const start = Number(b.startHour)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '') || !b.courtId) return res.status(400).json({ error: 'Please choose a court and date.' })
@@ -2072,6 +2243,7 @@ app.put('/api/admin/slots/:id', async (req, res) => {
 
 app.delete('/api/admin/slots/:id', async (req, res) => {
   if (!isAdmin(req)) return res.status(401).json({ error: 'Admin login required.', relogin: true })
+  if (!actionPasswordOk(req)) return res.status(403).json(WRONG_PASSWORD)
   await pool.query('DELETE FROM slot WHERE id = ?', [req.params.id])
   res.json({ ok: true })
 })

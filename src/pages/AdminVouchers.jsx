@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Receipt, Pencil, Trash2, X, Search, Printer, AlertCircle, Banknote, FileText, Check, Save } from 'lucide-react'
 import { format } from 'date-fns'
 import { adminVouchersApi, adminSaveVoucherApi, adminDeleteVoucherApi, adminVoucherOptionsApi, adminAddVoucherOptionApi } from '../store'
+import { rs2, amountInWords } from '../amountWords'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
@@ -15,7 +16,8 @@ const PAYEES = ['Secretary', 'Coach', 'Court attendant', 'Guard', 'Cleaner', 'Ac
 const BANKS = ['Habib Bank (HBL)', 'MCB Bank', 'United Bank (UBL)', 'Allied Bank (ABL)', 'Meezan Bank', 'Bank Alfalah', 'Bank AL Habib',
   'Faysal Bank', 'Askari Bank', 'Habib Metropolitan Bank', 'Standard Chartered', 'National Bank (NBP)', 'The Bank of Punjab (BOP)', 'Soneri Bank', 'JS Bank', 'Dubai Islamic Bank']
 
-const rs = n => `Rs. ${(Number(n) || 0).toLocaleString()}`
+// Rs. 11,111.00
+const rs = rs2
 const day = d => { const x = new Date(`${d}T00:00`); return isNaN(x) ? d : format(x, 'EEE d MMM yyyy') }
 const input = { width: '100%', border: `1.5px solid #CBD5E1`, borderRadius: '8px', height: '38px', padding: '0 10px', fontSize: '13px', outline: 'none', color: NAVY, background: 'white', fontFamily: 'inherit', fontWeight: 600 }
 const filterInput = { ...input, width: 'auto', height: '32px', fontSize: '12px', fontWeight: 500, border: `1.5px solid ${BORDER}` }
@@ -129,8 +131,14 @@ function VoucherForm({ voucher, options, onAddOption, onSaved, onCancel }) {
         </div>
         <div>
           <label className={label} style={{ color: NAVY }}>Amount (Rs.) *</label>
-          <input type="number" min="1" step="1" value={v.amount} placeholder="0" onChange={e => set('amount', e.target.value)}
+          <input type="number" min="0.01" step="0.01" value={v.amount} placeholder="0.00" onChange={e => set('amount', e.target.value)}
             style={{ ...input, fontWeight: 800, fontSize: '15px', color: RED }} />
+          {/* Amount as Rs. 11,111.00 and in words, while typing */}
+          {Number(v.amount) > 0 && (
+            <p className="mt-1 text-[11px] leading-snug" style={{ color: '#475569' }}>
+              <b style={{ color: RED }}>{rs(v.amount)}</b> · <i>{amountInWords(v.amount)}</i>
+            </p>
+          )}
         </div>
 
         {/* Payment: Cash or Cheque — a cheque needs its number and bank */}
@@ -292,7 +300,10 @@ export default function AdminVouchers() {
               <X size={12} /> Clear filters
             </button>
           )}
-          <span className="ml-auto text-sm font-black" style={{ color: RED }}>{shown.length} {shown.length === 1 ? 'voucher' : 'vouchers'} · Total: {rs(total)}</span>
+          <span className="ml-auto text-sm font-black text-right" style={{ color: RED }}>
+            {shown.length} {shown.length === 1 ? 'voucher' : 'vouchers'} · Total: {rs(total)}
+            {total > 0 && <span className="block text-[11px] font-semibold italic" style={{ color: '#64748B' }}>{amountInWords(total)}</span>}
+          </span>
           <button type="button" onClick={() => window.print()} disabled={!shown.length}
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold" style={{ background: NAVY, color: 'white', opacity: shown.length ? 1 : 0.4 }}>
             <Printer size={13} /> Print / PDF
@@ -302,7 +313,7 @@ export default function AdminVouchers() {
         <div className="hidden print:block px-4 py-3" style={{ borderBottom: `1px solid ${BORDER}` }}>
           <p className="text-lg font-black" style={{ color: NAVY }}>North Nazimabad Gymkhana Trust — Expense Vouchers</p>
           <p className="text-xs" style={{ color: '#475569' }}>
-            {from || to ? `${from ? day(from) : 'start'} – ${to ? day(to) : 'today'}` : 'All dates'}{category ? ` · ${category}` : ''}{payee ? ` · ${payee}` : ''}{method ? ` · ${method}` : ''}{bank ? ` · ${bank}` : ''} · {shown.length} vouchers · Total {rs(total)} · printed {format(new Date(), 'd MMM yyyy')}
+            {from || to ? `${from ? day(from) : 'start'} – ${to ? day(to) : 'today'}` : 'All dates'}{category ? ` · ${category}` : ''}{payee ? ` · ${payee}` : ''}{method ? ` · ${method}` : ''}{bank ? ` · ${bank}` : ''} · {shown.length} vouchers · Total {rs(total)} ({amountInWords(total)}) · printed {format(new Date(), 'd MMM yyyy')}
           </p>
         </div>
 
@@ -329,7 +340,10 @@ export default function AdminVouchers() {
                     ) : <span className="font-bold" style={{ color: NAVY }}>{v.method || '—'}</span>}
                   </td>
                   <td className="px-3 py-2" style={{ color: '#64748B', maxWidth: '220px' }}>{v.notes || '—'}</td>
-                  <td className="px-3 py-2 whitespace-nowrap font-black" style={{ color: RED }}>{rs(v.amount)}</td>
+                  <td className="px-3 py-2 font-black" style={{ color: RED }}>
+                    <span className="whitespace-nowrap">{rs(v.amount)}</span>
+                    <span className="block text-[10px] font-semibold italic leading-snug" style={{ color: '#64748B' }}>{amountInWords(v.amount)}</span>
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap print:hidden">
                     <span className="inline-flex gap-1">
                       <button type="button" onClick={() => openForm(v)} title="Edit voucher" className="inline-flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-bold"

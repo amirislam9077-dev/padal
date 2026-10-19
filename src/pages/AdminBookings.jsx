@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import EmailNotice from '../components/EmailNotice'
 import { useSearchParams } from 'react-router-dom'
 import { getCourts, formatSlotRange, adminSlotsApi, adminSetStatusApi, adminDeleteSlotApi, adminSetPaymentApi } from '../store'
+import { askAdminPassword } from '../components/askAdminPassword'
 import { Search, Trash2, CheckCircle, XCircle, SlidersHorizontal, Paperclip, ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react'
 import BalanceSlotsReport from '../components/BalanceSlotsReport'
 import { format } from 'date-fns'
@@ -83,8 +84,10 @@ export default function AdminBookings() {
     if (r.emails) setEmailNote({ slotRef: r.booking?.slotRef, ...r.emails }) // approving sends the "confirmed" email
   }
   async function remove(id) {
-    if (!confirm('Delete this booking permanently?')) return
-    const r = await adminDeleteSlotApi(id)
+    const b = bookings.find(x => x.id === id)
+    const password = await askAdminPassword(`Enter the admin password to permanently delete booking ${b?.slotRef || ''}. This cannot be undone.`, { danger: true })
+    if (!password) return
+    const r = await adminDeleteSlotApi(id, password)
     if (r.error) alert(r.error)
     load()
   }
@@ -220,7 +223,7 @@ export default function AdminBookings() {
             <table className="w-full text-sm">
               <thead style={{ background: '#F5F7FA', borderBottom: `2px solid #EEF2F7` }}>
                 <tr>
-                  {['Slot Ref', 'Player', 'Court', 'Date & Time', 'Slip', 'Payment Received', 'Status', ''].map((h, i) => (
+                  {['Slot Ref', 'Players', 'Court', 'Date & Time', 'Slip', 'Payment Received', 'Status', ''].map((h, i) => (
                     <th key={i} className="px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide whitespace-nowrap" style={{ color: i === 3 ? NAVY : LGRAY }}
                       aria-sort={i === 3 ? (sortAsc ? 'ascending' : 'descending') : undefined}>
                       {i === 3 ? (
@@ -240,9 +243,20 @@ export default function AdminBookings() {
                     // Processing (payment not yet received) rows are highlighted
                     <tr key={b.id} className={confirmed && !b.paymentReceived ? 'row-processing' : ''} style={{ borderBottom: '1px solid #EEF2F7', ...(confirmed && !b.paymentReceived ? { background: '#FFE8C2', boxShadow: 'inset 6px 0 0 #EA580C, inset 0 1px 0 #FDBA74, inset 0 -1px 0 #FDBA74' } : {}) }}>
                       <td className={`${cell} whitespace-nowrap text-xs font-bold`} style={{ color: NAVY, fontFamily: 'Consolas, monospace' }}>{b.slotRef}</td>
+                      {/* All 4 players: Team 1 vs Team 2 (CM No. on hover), booker's phone below */}
                       <td className={cell}>
-                        <p className="font-bold leading-tight" style={{ color: NAVY }}>{b.playerName}</p>
-                        <p className="text-[11px]" style={{ color: LGRAY }}>{b.playerPhone}</p>
+                        {[1, 2].map(t => {
+                          const team = (b.players || []).filter(p => p.team === t)
+                          return (
+                            <p key={t} className="text-xs leading-snug" title={team.map(p => `${p.name} ${p.cmNo || ''}`.trim()).join(' & ')}>
+                              <span className="inline-block w-4 text-[9px] font-black" style={{ color: t === 1 ? NAVY : '#4A6FA5' }}>T{t}</span>
+                              <span className={t === 1 ? 'font-bold' : 'font-semibold'} style={{ color: t === 1 ? NAVY : '#4B5563' }}>
+                                {team.map(p => p.name).join(' & ') || '—'}
+                              </span>
+                            </p>
+                          )
+                        })}
+                        <p className="text-[11px] mt-0.5" style={{ color: LGRAY }}>{b.playerPhone}</p>
                       </td>
                       <td className={`${cell} whitespace-nowrap`} style={{ color: '#4B5563' }}>
                         {b.courtName}

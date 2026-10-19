@@ -10,7 +10,8 @@ const input = { width: '100%', border: `1.5px solid ${BORDER}`, borderRadius: '8
 const label = 'block text-[10px] font-extrabold uppercase tracking-wide mb-1'
 
 // Admin: change a booking's court, date, start time, players and phone. Length and payment stay the same.
-export default function AdminEditBooking({ booking, onClose, onSaved }) {
+// password: the admin password asked when Edit was clicked (sent with the save)
+export default function AdminEditBooking({ booking, password, onClose, onSaved }) {
   const courts = getCourts()
   const hours = booking.endHour - booking.startHour
   const [courtId, setCourtId] = useState(booking.courtId)
@@ -34,7 +35,7 @@ export default function AdminEditBooking({ booking, onClose, onSaved }) {
     const r = await adminUpdateSlotApi(booking.id, {
       courtId, courtName: court?.name || booking.courtName, date, startHour, phone: phone.trim(),
       players: players.filter(p => p.name.trim()),
-    })
+    }, password)
     setSaving(false)
     if (r.error) { setError(r.error); return }
     onSaved(r.booking)

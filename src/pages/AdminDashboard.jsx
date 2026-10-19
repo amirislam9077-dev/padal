@@ -1,14 +1,171 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import EmailNotice from '../components/EmailNotice'
-import { getCourts, formatHour, formatSlotRange, adminSlotsApi, adminSetPaymentApi } from '../store'
+import { getCourts, TIME_SLOTS, formatHour, formatSlotRange, adminSlotsApi, adminSetPaymentApi, adminDeleteSlotApi } from '../store'
+import { askAdminPassword } from '../components/askAdminPassword'
 import { CourtCharts } from '../components/BookingCharts'
 import AdminEditBooking from '../components/AdminEditBooking'
-import { CalendarDays, CheckCircle, XCircle, TrendingUp, Clock, Paperclip, ChevronLeft, ChevronRight, Download, Printer, Pencil } from 'lucide-react'
+import { CalendarDays, CheckCircle, XCircle, TrendingUp, Clock, Paperclip, ChevronLeft, ChevronRight, Download, Printer, Pencil, X, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 
 const NAVY = '#1B2E4B'
 const BORDER = '#DDE3EC'
 const LGRAY = '#94A3B8'
+
+// Hours (3pm–12am) on a court that no active booking covers on that date
+function freeHours(bookings, courtId, date) {
+  const taken = new Set(bookings.filter(b => b.date === date && b.courtId === courtId && b.status === 'confirmed')
+    .flatMap(b => Array.from({ length: b.endHour - b.startHour }, (_, i) => b.startHour + i)))
+  return TIME_SLOTS.filter(h => !taken.has(h)).length
+}
+
+// "Today's Bookings" pop-up: today's bookings court by court (Court 1, Court 2 …), with Excel (CSV) and Print / PDF
+function TodayBookings({ bookings, courts, today, onClose }) {
+  const team = (b, t) => (b.players || []).filter(p => p.team === t)
+  const names = (b, t) => team(b, t).map(p => p.cmNo ? `${p.name} (${p.cmNo})` : p.name).join(' & ') || '—'
+  const todays = bookings.filter(b => b.date === today && b.status === 'confirmed').sort((a, b) => a.startHour - b.startHour)
+  // One section per court (plus any court not in the list, e.g. one that was removed)
+  const sections = [...courts.map(c => ({ id: c.id, name: c.name })),
+    ...[...new Set(todays.map(b => b.courtId))].filter(id => !courts.some(c => c.id === id)).map(id => ({ id, name: todays.find(b => b.courtId === id).courtName }))]
+    .map(c => ({ ...c, rows: todays.filter(b => b.courtId === c.id), full: freeHours(bookings, c.id, today) === 0 }))
+  const allFull = sections.length > 0 && sections.every(c => c.full)
+  const dayText = format(new Date(today + 'T00:00'), 'EEEE, d MMMM yyyy')
+
+  function exportExcel() {
+    const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const header = ['Court', 'Slot Ref', 'Time', 'Hours', 'Team 1', 'Team 2', 'Booked by', 'Phone']
+    const lines = sections.flatMap(c => c.rows.map(b => [c.name, b.slotRef, formatSlotRange(b.startHour, b.endHour), b.endHour - b.startHour,
+      names(b, 1), names(b, 2), b.playerName, b.playerPhone].map(cell).join(',')))
+    const blob = new Blob(['﻿' + [cell(`Today's Bookings — ${dayText}`), header.map(cell).join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `todays-bookings-${today}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  // Rendered outside the app (on <body>) so Print / PDF can hide the whole page behind it
+  return createPortal(
+    <div id="today-print" className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: 'rgba(15,23,42,0.55)' }} onClick={onClose}>
+      {/* Print / PDF: only this pop-up is printed */}
+      <style>{`@media print {
+        #root { display: none !important; }
+        #today-print { position: static !important; display: block !important; background: white !important; padding: 0 !important; overflow: visible !important; }
+        #today-print > div { box-shadow: none !important; border: none !important; margin: 0 !important; max-width: none !important; }
+        #today-print .no-print { display: none !important; }
+        #today-print .print-only { display: block !important; }
+        #today-print, #today-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        /* Each court on its own A4 page */
+        #today-print .court-page { break-inside: avoid; page-break-inside: avoid; }
+        #today-print .court-page + .court-page { break-before: page; page-break-before: always; margin-top: 0 !important; }
+        #today-print .court-pages { padding: 0 !important; }
+        /* Large, easy-to-read text on paper (one court fills one A4 landscape page) */
+        #today-print table { min-width: 0 !important; }
+        #today-print th { font-size: 11px !important; padding: 7px 8px !important; }
+        #today-print .court-title { font-size: 26px !important; }
+        #today-print .court-sub { font-size: 14px !important; }
+        #today-print th { font-size: 12px !important; }
+        /* Each court fills one whole A4 landscape page: the table stretches its rows down to the bottom */
+        #today-print .court-page { height: 184mm; display: flex !important; flex-direction: column; }
+        #today-print .court-box { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        #today-print .court-box > .overflow-x-auto { flex: 1; overflow: visible !important; }
+        #today-print .court-box table { height: 100%; }
+        #today-print .phone-col { width: 0 !important; }
+        /* Text size by the number of bookings (bigger when there are fewer) */
+        #today-print .fit-lg table { font-size: 21px !important; }  #today-print .fit-lg td { padding: 10px 10px !important; }
+        #today-print .fit-md table { font-size: 17px !important; }  #today-print .fit-md td { padding: 5px 9px !important; }
+        #today-print .fit-sm table { font-size: 14px !important; }  #today-print .fit-sm td { padding: 4px 8px !important; }
+        #today-print .fit-xs table { font-size: 11px !important; }  #today-print .fit-xs td { padding: 2px 6px !important; }
+        #today-print .fit-lg .u18-tag, #today-print .fit-md .u18-tag { font-size: 12px !important; }
+        @page { size: A4 landscape; margin: 10mm; }
+      }`}</style>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-7xl my-6" style={{ border: `1px solid ${BORDER}` }}>
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${BORDER}` }}>
+          <div>
+            <p className="font-black text-xl flex items-center gap-2" style={{ color: NAVY }}><CalendarDays size={20} /> Today's Bookings</p>
+            <p className="text-sm" style={{ color: LGRAY }}>North Nazimabad Gymkhana Trust · {dayText} · {todays.length} booking{todays.length === 1 ? '' : 's'}</p>
+          </div>
+          <span className="no-print flex items-center gap-2">
+            <button type="button" onClick={exportExcel} disabled={!todays.length} title="Download today's bookings (opens in Excel)"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold"
+              style={{ border: '1.5px solid #047857', color: '#047857', background: 'white', opacity: todays.length ? 1 : 0.4 }}>
+              <Download size={13} /> Excel
+            </button>
+            <button type="button" onClick={() => window.print()} disabled={!todays.length} title="Print, or choose “Save as PDF” in the print window"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold"
+              style={{ background: NAVY, color: 'white', opacity: todays.length ? 1 : 0.4 }}>
+              <Printer size={13} /> Print / PDF
+            </button>
+            <button type="button" onClick={onClose} title="Close" className="p-1.5 rounded-lg" style={{ color: LGRAY }}><X size={18} /></button>
+          </span>
+        </div>
+
+        {allFull && (
+          <div className="no-print mx-4 sm:mx-5 mt-4 px-4 py-3 rounded-xl text-sm font-black flex items-center gap-2" style={{ background: '#FEF2F2', color: '#B91C1C', border: '2px solid #FCA5A5' }}>
+            <CalendarDays size={16} /> Today is fully booked — every court is booked from 3pm to 12am.
+          </div>
+        )}
+        <div className="court-pages p-4 sm:p-5 space-y-5">
+          {sections.map(c => (
+            <div key={c.id} className={`court-page ${c.rows.length <= 6 ? 'fit-lg' : c.rows.length <= 9 ? 'fit-md' : c.rows.length <= 13 ? 'fit-sm' : 'fit-xs'}`}>
+            {/* On paper / PDF every court page starts with its own heading */}
+            <div className="print-only hidden mb-3 pb-2" style={{ borderBottom: `2px solid ${NAVY}` }}>
+              <p className="court-title text-lg font-black" style={{ color: NAVY }}>Today's Bookings — {c.name}{c.full ? ' (Fully booked)' : ''}</p>
+              <p className="court-sub text-xs" style={{ color: '#475569' }}>North Nazimabad Gymkhana Trust · {dayText} · {c.rows.length} booking{c.rows.length === 1 ? '' : 's'}</p>
+            </div>
+            <div className="court-box rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
+              <div className="flex items-center justify-between px-4 py-2.5" style={{ background: NAVY }}>
+                <span className="text-base font-black text-white flex items-center gap-2">
+                  {c.name}
+                  {c.full && <span className="text-[11px] font-black px-2 py-0.5 rounded-full" style={{ background: '#DC2626', color: 'white' }}>FULLY BOOKED</span>}
+                </span>
+                <span className="text-xs font-semibold text-white/70">{c.rows.length} booking{c.rows.length === 1 ? '' : 's'}</span>
+              </div>
+              {c.rows.length === 0 ? (
+                <p className="px-4 py-4 text-sm text-center" style={{ color: LGRAY }}>No bookings on {c.name} today</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '900px' }}>
+                    <colgroup>
+                      {/* Phone is the last column: on screen only, not in the print-out */}
+                      {[9, 15, 27, 27, 11, 11].map((w, i) => <col key={i} className={i === 5 ? 'phone-col' : undefined} style={{ width: `${w}%` }} />)}
+                    </colgroup>
+                    <thead style={{ background: '#F5F7FA' }}>
+                      <tr>{['Slot Ref', 'Time', 'Team 1', 'Team 2', 'Booked by', 'Phone'].map(h => (
+                        <th key={h} className={`${h === 'Phone' ? 'no-print ' : ''}px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide whitespace-nowrap`} style={{ color: LGRAY }}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {c.rows.map(b => (
+                        // Under-18 bookings: green row with a green bar on the left
+                        <tr key={b.id} style={b.junior
+                          ? { borderTop: '1px solid #A7F3D0', background: '#D1FAE5', boxShadow: 'inset 5px 0 0 #047857' }
+                          : { borderTop: '1px solid #EEF2F7' }}>
+                          <td className="px-3 py-3 font-bold whitespace-nowrap" style={{ color: NAVY, fontFamily: 'Consolas, monospace' }}>{b.slotRef}</td>
+                          {/* Time stays on one line; the U-18 tag moves under it when there's no room (doesn't spill into Team 1) */}
+                          <td className="px-3 py-3 font-semibold" style={{ color: NAVY }}>
+                            <span className="whitespace-nowrap">{formatSlotRange(b.startHour, b.endHour)} <span style={{ color: LGRAY }}>· {b.endHour - b.startHour}h</span></span>
+                            {b.junior && <span className="u18-tag ml-1.5 px-1.5 py-px rounded text-[10px] font-black" style={{ background: '#047857', color: 'white' }}>U-18 FREE</span>}
+                          </td>
+                          <td className="px-3 py-3" style={{ color: NAVY }}>{names(b, 1)}</td>
+                          <td className="px-3 py-3" style={{ color: '#4B5563' }}>{names(b, 2)}</td>
+                          <td className="px-3 py-3 whitespace-nowrap" style={{ color: '#4B5563' }}>{b.playerName}</td>
+                          <td className="no-print px-3 py-3 whitespace-nowrap" style={{ color: LGRAY }}>{b.playerPhone}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
 
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([])
@@ -29,6 +186,19 @@ export default function AdminDashboard() {
 
   // Edit (court, date, time, players, phone) for each upcoming booking
   const [editingBooking, setEditingBooking] = useState(null)
+  const [showToday, setShowToday] = useState(false) // "Today's Bookings" pop-up
+  // Edit and Delete ask for the admin password first
+  async function editBooking(b) {
+    const password = await askAdminPassword(`Enter the admin password to edit booking ${b.slotRef}.`)
+    if (password) setEditingBooking({ ...b, password })
+  }
+  async function deleteBooking(b) {
+    const password = await askAdminPassword(`Enter the admin password to permanently delete booking ${b.slotRef} (${b.playerName}, ${format(new Date(b.date + 'T00:00'), 'd MMM')}). This cannot be undone.`, { danger: true })
+    if (!password) return
+    const r = await adminDeleteSlotApi(b.id, password)
+    if (r.error) { alert(r.error); return }
+    setBookings(list => list.filter(x => x.id !== b.id))
+  }
 
   // All bookings from MySQL (slot table)
   useEffect(() => {
@@ -44,6 +214,9 @@ export default function AdminDashboard() {
   const today = format(new Date(), 'yyyy-MM-dd')
   const todayBookings = bookings.filter(b => b.date === today)
   const confirmedToday = todayBookings.filter(b => b.status === 'confirmed')
+  // Every court booked for every hour today
+  const todayFree = courts.map(c => ({ name: c.name, free: freeHours(bookings, c.id, today) }))
+  const todayFull = courts.length > 0 && todayFree.every(c => c.free === 0)
   const totalConfirmed = bookings.filter(b => b.status === 'confirmed')
   const totalCancelled = bookings.filter(b => b.status === 'cancelled')
 
@@ -112,12 +285,21 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <EmailNotice note={emailNote} onClose={closeEmailNote} />
       {editingBooking && (
-        <AdminEditBooking booking={editingBooking} onClose={() => setEditingBooking(null)}
+        <AdminEditBooking booking={editingBooking} password={editingBooking.password} onClose={() => setEditingBooking(null)}
           onSaved={saved => { setBookings(list => list.map(x => (x.id === saved.id ? saved : x))); setEditingBooking(null) }} />
       )}
-      <div className="print:hidden">
-        <h1 className="text-2xl font-black" style={{ color: NAVY }}>Dashboard</h1>
-        <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
+      {showToday && <TodayBookings bookings={bookings} courts={courts} today={today} onClose={() => setShowToday(false)} />}
+      <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black" style={{ color: NAVY }}>Dashboard</h1>
+          <p className="text-sm mt-0.5" style={{ color: LGRAY }}>{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
+        </div>
+        <button type="button" onClick={() => setShowToday(true)}
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-xl text-sm font-black shadow-sm"
+          style={{ background: NAVY, color: 'white' }}>
+          <CalendarDays size={16} /> Today's Bookings
+          <span className="min-w-5 h-5 px-1.5 rounded-full inline-flex items-center justify-center text-[11px]" style={{ background: '#F59E0B', color: 'white' }}>{confirmedToday.length}</span>
+        </button>
       </div>
       {loadError && (
         <p className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
@@ -125,10 +307,28 @@ export default function AdminDashboard() {
         </p>
       )}
 
+      {/* Today fully booked: a clear notice above the stats */}
+      {todayFull ? (
+        <div onClick={() => setShowToday(true)} className="print:hidden cursor-pointer flex flex-wrap items-center gap-3 px-5 py-4 rounded-xl shadow-sm"
+          style={{ background: 'linear-gradient(90deg, #DC2626, #B91C1C)', color: 'white' }} title="Show today's bookings">
+          <CalendarDays size={22} />
+          <span className="text-lg font-black">Today is fully booked</span>
+          <span className="text-sm font-semibold opacity-90">All {courts.length} courts are booked from 3pm to 12am — no slots left today.</span>
+        </div>
+      ) : todayFree.some(c => c.free === 0) && (
+        <div className="print:hidden flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold" style={{ background: '#FFF7ED', color: '#C2410C', border: '1.5px solid #FDBA74' }}>
+          <CalendarDays size={16} />
+          {todayFree.filter(c => c.free === 0).map(c => c.name).join(' & ')} fully booked today
+          <span className="font-semibold" style={{ color: '#9A3412' }}>· {todayFree.filter(c => c.free > 0).map(c => `${c.name}: ${c.free} hr${c.free === 1 ? '' : 's'} free`).join(' · ')}</span>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
         {stats.map(({ icon: Icon, label, value, sub, bg, ic }) => (
-          <div key={label} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${BORDER}` }}>
+          // The "Today's Bookings" card opens the same pop-up as the button
+          <div key={label} onClick={label === "Today's Bookings" ? () => setShowToday(true) : undefined}
+            className={`bg-white rounded-xl p-5 shadow-sm ${label === "Today's Bookings" ? 'cursor-pointer hover:shadow-md transition' : ''}`} style={{ border: `1px solid ${BORDER}` }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: bg }}>
               <Icon size={18} style={{ color: ic }} />
             </div>
@@ -259,11 +459,18 @@ export default function AdminDashboard() {
                         })()}
                       </td>
                       <td className={`${cell} print:hidden`}>
-                        <button type="button" onClick={() => setEditingBooking(b)} title="Edit booking"
-                          className="inline-flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-bold"
-                          style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>
-                          <Pencil size={12} /> Edit
-                        </button>
+                        <span className="inline-flex gap-1">
+                          <button type="button" onClick={() => editBooking(b)} title="Edit booking (asks for the password)"
+                            className="inline-flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] font-bold"
+                            style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>
+                            <Pencil size={12} /> Edit
+                          </button>
+                          <button type="button" onClick={() => deleteBooking(b)} title="Delete booking (asks for the password)" aria-label="Delete booking"
+                            className="inline-flex items-center h-7 px-2 rounded-lg"
+                            style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        </span>
                       </td>
                     </tr>
                   )

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, Hash, ShieldCheck, RefreshCw, Camera, X, AtSign, Calendar } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { User, Mail, Phone, Lock, Eye, EyeOff, AlertCircle, Hash, ShieldCheck, RefreshCw, Camera, X, AtSign, Calendar, Clock } from 'lucide-react'
 import { sendOtpApi, signupApi, checkMembershipApi, checkUsernameApi } from '../store'
 
 const NAVY = '#1B2E4B'
@@ -169,13 +169,13 @@ function OTPScreen({ form, sentTo, onResend, onVerify, onBack }) {
 }
 
 export default function Signup() {
-  const navigate = useNavigate()
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [sentTo, setSentTo] = useState(null)
   const [showOTP, setShowOTP] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState(null) // account made, waiting for admin approval
   // People already registered on this membership number (family members can share one)
   const [members, setMembers] = useState([])
 
@@ -280,7 +280,8 @@ export default function Signup() {
       if (result.usernameTaken) setUsernameTaken(true)
       setShowOTP(false); setError(result.error); return null
     }
-    navigate('/')
+    // Not signed in yet: the admin has to approve the sign-up first
+    setShowOTP(false); setPendingEmail(result.email || form.email)
     return null
   }
 
@@ -289,6 +290,26 @@ export default function Signup() {
     if (result.error) return result.error
     setSentTo(result)
     return null
+  }
+
+  if (pendingEmail) {
+    return (
+      <div className="flex items-center justify-center px-4 py-10" style={{ background: '#F1F4F8' }}>
+        <div className="w-full max-w-[440px] bg-white rounded-2xl shadow-sm p-6 text-center" style={{ border: `1px solid ${BORDER}` }}>
+          <div className="w-14 h-14 mx-auto mb-3 rounded-full flex items-center justify-center" style={{ background: '#FEF3C7' }}>
+            <Clock size={26} style={{ color: '#B45309' }} />
+          </div>
+          <p className="font-black text-lg" style={{ color: NAVY }}>Sign-up received</p>
+          <p className="text-sm mt-2" style={{ color: '#475569' }}>
+            Your account is waiting for admin approval. We will send an email to <b style={{ color: NAVY }}>{pendingEmail}</b> as
+            soon as it is approved — then you can sign in and start booking.
+          </p>
+          <Link to="/" className="inline-block mt-5 px-5 py-2.5 rounded-xl text-sm font-black" style={{ background: NAVY, color: 'white' }}>
+            Back to Home
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   if (showOTP) {

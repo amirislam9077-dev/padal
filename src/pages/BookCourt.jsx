@@ -12,24 +12,6 @@ const LGRAY = '#94A3B8'
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const SLIP_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 const MAX_SLIP_MB = 5
-// Banks in Pakistan for the Bank Name drop-down ("Other" lets the member type any name)
-const BANK_GROUPS = [
-  { label: 'Public sector banks', banks: ['National Bank of Pakistan (NBP)', 'The Bank of Punjab (BOP)', 'Bank of Khyber (BOK)', 'Sindh Bank',
-    'First Women Bank', 'Bank of Azad Jammu & Kashmir', 'Zarai Taraqiati Bank (ZTBL)', 'Punjab Provincial Co-operative Bank'] },
-  { label: 'Private banks', banks: ['Allied Bank (ABL)', 'Askari Bank', 'Bank Alfalah', 'Bank AL Habib', 'Bank Makramah (formerly Summit Bank)',
-    'Faysal Bank', 'Habib Bank (HBL)', 'Habib Metropolitan Bank', 'JS Bank', 'MCB Bank', 'Samba Bank', 'Silkbank', 'Soneri Bank',
-    'Standard Chartered Bank', 'United Bank (UBL)'] },
-  { label: 'Islamic banks', banks: ['Meezan Bank', 'BankIslami Pakistan', 'Dubai Islamic Bank Pakistan', 'Al Baraka Bank Pakistan',
-    'MCB Islamic Bank'] },
-  { label: 'Foreign banks', banks: ['Citibank', 'Deutsche Bank', 'Bank of China', 'Industrial and Commercial Bank of China (ICBC)'] },
-  { label: 'Digital banks', banks: ['Mashreq Bank Pakistan', 'Raqami Islamic Digital Bank', 'Hugo Bank', 'KT Bank Pakistan'] },
-  { label: 'Microfinance banks', banks: ['Mobilink Microfinance Bank', 'Easypaisa Bank (Telenor Microfinance)', 'U Microfinance Bank (Upaisa)',
-    'Khushhali Microfinance Bank', 'FINCA Microfinance Bank', 'NRSP Microfinance Bank', 'HBL Microfinance Bank', 'Apna Microfinance Bank',
-    'LOLC Microfinance Bank', 'Advans Pakistan Microfinance Bank'] },
-  { label: 'Mobile wallets', banks: ['JazzCash', 'Easypaisa', 'SadaPay', 'NayaPay', 'UPaisa', 'Konnect by HBL'] },
-]
-const ALL_BANKS = BANK_GROUPS.flatMap(g => g.banks)
-
 function getNext30Days() {
   return Array.from({ length: 30 }, (_, i) => {
     const d = addDays(new Date(), i)
@@ -51,7 +33,7 @@ const card = { background: '#FFFFFF', border: `1px solid ${BORDER}`, borderRadiu
 const sectionLabel = { fontSize: '11px', fontWeight: '700', letterSpacing: '0.08em', textTransform: 'uppercase', color: LGRAY, marginBottom: '10px', display: 'block' }
 const inputStyle = { width: '100%', border: `1.5px solid ${BORDER}`, borderRadius: '10px', padding: '10px 12px', fontSize: '14px', outline: 'none', color: NAVY, background: '#F8FAFC' }
 const compactInput = { ...inputStyle, padding: '7px 12px' }
-// Contact phone, deposit slip, bank name, reference no.: highlighted so they're not missed
+// Contact phone, deposit slip: highlighted so they're not missed
 const KEY_BLUE = '#3B82F6'
 const keyLabel = { ...sectionLabel, fontSize: '12.5px', fontWeight: '800', letterSpacing: '0.04em', color: NAVY, marginBottom: '6px' }
 const keyInput = { ...compactInput, height: '40px', background: 'white', border: `2px solid #93C5FD`, fontWeight: 600, boxShadow: '0 1px 3px rgba(59,130,246,0.12)' }
@@ -121,7 +103,8 @@ const sameMember = (player, m) =>
 
 // Combo box: shows the chosen member's full name; opens a panel with a search box and the list of
 // every registered member (filtered as you type). "None" clears the player.
-function MemberCombo({ value, onPick, placeholder, icon, exclude, style }) {
+// under18: list only under-18 members (booking in the under-18 free time)
+function MemberCombo({ value, onPick, placeholder, icon, exclude, style, under18 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -139,7 +122,7 @@ function MemberCombo({ value, onPick, placeholder, icon, exclude, style }) {
     const mine = ++seq.current
     setLoading(true)
     timer.current = setTimeout(async () => {
-      const r = await searchMembersApi(q.trim(), 'name')
+      const r = await searchMembersApi(q.trim(), 'name', under18)
       if (mine !== seq.current) return // a newer search is on its way
       setResults((r.members || []).filter(m => !exclude.some(p => sameMember(p, m))))
       setActive(0)
@@ -235,7 +218,7 @@ function MemberCombo({ value, onPick, placeholder, icon, exclude, style }) {
 }
 
 // Text input that searches registered members (by name or CM No.) and shows a pick list
-function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, exclude, style }) {
+function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, exclude, style, under18 }) {
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
@@ -248,7 +231,7 @@ function MemberSearchInput({ value, onChange, onPick, field, placeholder, icon, 
     clearTimeout(timer.current)
     const mine = ++seq.current
     timer.current = setTimeout(async () => {
-      const r = await searchMembersApi(v.trim(), field)
+      const r = await searchMembersApi(v.trim(), field, under18)
       if (mine !== seq.current) return // a newer search is on its way
       setResults((r.members || []).filter(m => !exclude.some(p => sameMember(p, m))))
       setActive(0)
@@ -358,11 +341,23 @@ export default function BookCourt() {
   const cost = selectedTime ? bookingCost(startHour, duration, junior && inKidsWindow) : { total: RATE_PER_HOUR * duration, freeHours: 0, paidHours: duration }
   // Advance balance (from cancelled bookings) is used first; a slip is only needed for the rest
   const [credit, setCredit] = useState(0)
+  // Member dues set by the admin: at or above the limit no new booking can be made (the server refuses it too)
+  const [dues, setDues] = useState({ amount: 0, limit: 20000, suspended: false })
   useEffect(() => {
     let cancelled = false
-    creditApi().then(r => { if (!cancelled) setCredit(r.balance || 0) })
+    creditApi().then(r => {
+      if (cancelled) return
+      setCredit(r.balance || 0)
+      if (r.duesLimit) setDues({ amount: r.dues || 0, limit: r.duesLimit, suspended: !!r.suspended })
+    })
     return () => { cancelled = true }
   }, [])
+  // Suspended by the admin, or dues at or above the limit → the reason shown instead of booking (null = can book)
+  const blockMessage = dues.suspended
+    ? 'Your booking cannot be made because your membership is suspended. Please contact the club office.'
+    : dues.amount >= dues.limit
+      ? `Your booking cannot be made because you have payment dues of Rs. ${dues.amount.toLocaleString()}. Please clear your dues with the club office, then book again.`
+      : null
   // Editing (upcoming or cancelled): what the booking was paid by its slip counts first, then the advance.
   // A cancelled booking's money that was put on the advance is taken back from it (not counted twice).
   const held = (editing || rebook)?.refundable || 0
@@ -380,6 +375,16 @@ export default function BookCourt() {
   const [savedRef, setSavedRef] = useState(null)
   // The club still has to check the deposit slip → "Processing" until the admin approves it
   const [paymentPending, setPaymentPending] = useState(false)
+  const [savedId, setSavedId] = useState(null) // the booking just saved (to watch for the admin's approval)
+  // While the "Processing" screen is open, check every 20 s whether the club has approved the payment
+  useEffect(() => {
+    if (!paymentPending || !savedId) return
+    const timer = setInterval(async () => {
+      const r = await mySlotsApi()
+      if ((r.bookings || []).find(b => b.id === savedId)?.paymentReceived) setPaymentPending(false)
+    }, 20000)
+    return () => clearInterval(timer)
+  }, [paymentPending, savedId])
   const [newRef, setNewRef] = useState(null)
   const [refVersion, setRefVersion] = useState(0) // bump to reserve the next number ("Book Another")
   useEffect(() => {
@@ -392,7 +397,7 @@ export default function BookCourt() {
   const [playerName, setPlayerName] = useState(user?.name || '')
   const [playerCnic, setPlayerCnic] = useState(user?.membershipNo || '')
   const [playerPhone, setPlayerPhone] = useState(prefill?.playerPhone || user?.phone || '')
-  // Players 2–4 (optional): name + CM No. each
+  // Players 2–4 (required): name + CM No. each
   const emptyExtraPlayers = () => [2, 3, 4].map(n => ({ n, name: '', cm: '', picture: null }))
   const [extraPlayers, setExtraPlayers] = useState(() => emptyExtraPlayers().map(p => {
     const prev = prefill?.players?.find(x => x.n === p.n) // players 2–4 from the booking being edited / rebooked
@@ -431,9 +436,6 @@ export default function BookCourt() {
   // Reference no. printed on the deposit slip (comes with a carried-over slip)
   const [refNo, setRefNo] = useState(() => (slip?.fromCancelled && prefill?.referenceNo) || '')
   const [bankName, setBankName] = useState(() => (slip?.fromCancelled && prefill?.bankName) || '')
-  const [otherBank, setOtherBank] = useState(() => !!bankName && !ALL_BANKS.includes(bankName)) // a bank not in the list
-  const [refError, setRefError] = useState('') // reference no. / bank name message
-  const refNeeded = !!slip && !slip.fromCancelled && !isFree // a newly attached slip needs its reference no. (a free booking sends none)
   const [slipBusy, setSlipBusy] = useState(false)
   const [slipError, setSlipError] = useState('')
   // Confirmation emails after booking: { sending } → { sent, skipped } or { error }
@@ -470,6 +472,8 @@ export default function BookCourt() {
   const [bookedSlots, setBookedSlots] = useState([])
   const [heldHours, setHeldHours] = useState([]) // another member is booking these right now ("processing")
   const [success, setSuccess] = useState(false)
+  // Booking saved: show the result screen from its top (the page was scrolled down to the Confirm button)
+  useEffect(() => { if (success) window.scrollTo({ top: 0, behavior: 'smooth' }) }, [success])
   const [error, setError] = useState('')
   const [toast, setToast] = useState(null)
   const [showBalance, setShowBalance] = useState(false) // "Balance Booking Slots" report
@@ -514,6 +518,7 @@ export default function BookCourt() {
   // Changing the court or date clears the chosen time
   // On phones the time slots are below the calendar, so bring them into view after picking a date
   const timeSection = useRef(null)
+  const step1Next = useRef(null) // step 1 NEXT button: scrolled into view once a time is picked
   function chooseDate(key) {
     setSelectedDate(key); setSelectedTime(''); setBookedSlots([]); setHeldHours([])
     if (window.innerWidth < 768) setTimeout(() => timeSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
@@ -573,9 +578,12 @@ export default function BookCourt() {
       return
     }
     setSelectedTime(String(hour))
+    // Bring the NEXT button into view (after the summary line under the times has rendered)
+    setTimeout(() => step1Next.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120)
   }
 
   function goStep2() {
+    if (!editing && blockMessage) { setError(blockMessage); return }
     if (!selectedDate || !selectedTime) { setError('Please select a date and a time slot.'); return }
     if (weekFull(parseInt(selectedTime))) { setError(weekLimitText(parseInt(selectedTime))); return }
     if (!under18 && inKidsWindow) { setError('You are not applicable to book this slot. Only under-18 players can book this slot.'); return }
@@ -585,8 +593,10 @@ export default function BookCourt() {
 
   function goStep3() {
     if (!playerName.trim() || !playerPhone.trim()) { setError('Please fill in your name and phone number.'); return }
-    const half = filledExtras.find(p => !p.name.trim() || !p.cm.trim())
-    if (half) { setError(`Please enter both the name and CM No. for Player ${half.n}, or leave both empty.`); return }
+    if (!playerCnic.trim()) { setError('Please enter your CM No. (Player 1).'); return }
+    // All 4 players are required (2 vs 2)
+    const missing = extraPlayers.find(p => !p.name.trim() || !p.cm.trim())
+    if (missing) { setError(`Please select Player ${missing.n} — all 4 players (name and CM No.) are required.`); return }
     // The same person (name + CM No.) can't be entered twice
     const key = p => `${p.name.trim().toLowerCase()}|${p.cm.trim().toUpperCase()}`
     const entered = [{ n: 1, name: playerName, cm: playerCnic }, ...filledExtras]
@@ -600,8 +610,6 @@ export default function BookCourt() {
       setSlipError(`The new slot costs more than you paid before. Please attach a new deposit slip for Rs. ${amountDue.toLocaleString()}.`)
       setError(''); return
     }
-    if (refNeeded && !bankName.trim()) { setRefError('Please enter the bank name of the deposit slip.'); setError(''); return }
-    if (refNeeded && !refNo.trim()) { setRefError('Please enter the reference no. printed on the deposit slip.'); setError(''); return }
     if (isFree) { setError(''); handleConfirm(); return } // nothing to pay: book it now, skip checkout
     setError(''); setStep(3)
     setTimeout(() => document.getElementById('step3')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -634,6 +642,7 @@ export default function BookCourt() {
     setSuccess(editing || rebook ? 'updated' : true)
     setPaymentPending(result.booking ? !result.booking.paymentReceived : false)
     setSavedRef(result.booking?.slotRef || null)
+    setSavedId(result.booking?.id || null)
     if (editing) navigate(location.pathname, { replace: true, state: null })
     if (result.replaced && rebook) {
       setReplacedBooking(rebook) // (rebook itself is cleared by "Book Another")
@@ -660,16 +669,20 @@ export default function BookCourt() {
 
   if (success) {
     return (
-      <div className="max-w-md mx-auto text-center py-16">
-        <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-lg" style={{ background: NAVY }}>
-          <Check size={38} color="white" strokeWidth={3} />
+      // Compact so the whole result fits on one screen: icon beside the heading, details in two columns
+      <div className="max-w-2xl mx-auto text-center px-4 py-5 sm:py-6">
+        {/* Processing: orange clock; Confirmed: green tick (switches by itself when the club approves) */}
+        <div className="flex items-center justify-center gap-3 mb-1.5">
+          <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 shadow-md" style={{ background: paymentPending ? '#EA580C' : '#047857' }}>
+            {paymentPending ? <Clock size={24} color="white" strokeWidth={2.5} /> : <Check size={24} color="white" strokeWidth={3} />}
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black text-left" style={{ color: paymentPending ? '#C2410C' : '#047857' }}>{paymentPending ? (success === 'updated' ? 'Booking Updated — Processing' : 'Booking Received — Processing') : success === 'updated' ? 'Booking Updated!' : 'Booking Confirmed!'}</h2>
         </div>
-        <h2 className="text-2xl font-black mb-2" style={{ color: NAVY }}>{paymentPending ? (success === 'updated' ? 'Booking Updated — Processing' : 'Booking Received — Processing') : success === 'updated' ? 'Booking Updated!' : 'Booking Confirmed!'}</h2>
-        <p className="text-sm mb-6" style={{ color: LGRAY }}>
+        <p className="text-sm mb-3" style={{ color: LGRAY }}>
           {success === 'updated' && refundBack > 0 ? `Rs. ${refundBack.toLocaleString()} added to your advance balance. ` : ''}
           {paymentPending ? 'Your payment is being processed. The booking will show as Confirmed once the club approves your deposit slip.' : 'See you on the court!'}
         </p>
-        <div className="rounded-xl p-5 text-left text-sm mb-6 space-y-2.5" style={{ background: '#EEF2F7', border: `1px solid ${BORDER}` }}>
+        <div className="rounded-xl px-4 py-3 text-left text-sm mb-3 grid sm:grid-cols-2 gap-x-8 gap-y-1.5" style={{ background: '#EEF2F7', border: `1px solid ${BORDER}` }}>
           {[
             ...(savedRef ? [['Slot Ref No.', savedRef]] : []),
             ['Team 1', teamPlayers(1).map(p => p.name.trim()).join(' & ') || '—'],
@@ -684,16 +697,16 @@ export default function BookCourt() {
             ['Date', selectedDate ? formatDate(selectedDate) : ''],
             ['Time', formatSlotRange(parseInt(selectedTime), parseInt(selectedTime) + duration)],
           ].map(([k, v]) => (
-            <div key={k} className="flex justify-between">
-              <span style={{ color: LGRAY }}>{k}</span>
-              <span className="font-bold" style={{ color: NAVY }}>{v}</span>
+            <div key={k} className="flex justify-between gap-3">
+              <span className="shrink-0" style={{ color: LGRAY }}>{k}</span>
+              <span className="font-bold text-right" style={{ color: NAVY }}>{v}</span>
             </div>
           ))}
         </div>
 
         {/* Booking email status */}
         {emailStatus && (
-          <div className="rounded-xl px-4 py-3 text-left text-sm mb-6 flex gap-3"
+          <div className="rounded-xl px-4 py-2 text-left text-sm mb-3 flex gap-3"
             style={emailStatus.error
               ? { background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C' }
               : { background: '#ECFDF5', border: '1px solid #A7F3D0', color: '#065F46' }}>
@@ -720,7 +733,9 @@ export default function BookCourt() {
         )}
 
         <div className="flex gap-3 justify-center">
-          <button onClick={() => { setSuccess(false); setEditing(null); setRebook(null); setReplacedBooking(null); setSavedRef(null); setNewRef(null); setRefVersion(v => v + 1); setStep(1); setSelectedDate(''); setSelectedTime(''); setBookedVersion(v => v + 1); setPlayerName(user.name || ''); setPlayerCnic(user.membershipNo || ''); setPlayerPhone(user.phone || ''); setExtraPlayers(emptyExtraPlayers()); setSlip(null); setSlipError(''); setRefNo(''); setBankName(''); setOtherBank(false); setRefError(''); setEmailStatus(null); creditApi().then(r => setCredit(r.balance || 0)) }}
+          <button onClick={() => { setSuccess(false); setEditing(null); setRebook(null); setReplacedBooking(null); setSavedRef(null); setNewRef(null); setRefVersion(v => v + 1); setStep(1); setSelectedDate(''); setSelectedTime(''); setBookedVersion(v => v + 1); setPlayerName(user.name || ''); setPlayerCnic(user.membershipNo || ''); setPlayerPhone(user.phone || ''); setExtraPlayers(emptyExtraPlayers()); setSlip(null); setSlipError(''); setRefNo(''); setBankName(''); setEmailStatus(null); creditApi().then(r => setCredit(r.balance || 0))
+            // Back up to the calendar for the next booking
+            setTimeout(() => document.getElementById('step1')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80) }}
             className="btn font-bold px-6 py-2.5 rounded-xl text-sm" style={{ background: NAVY, color: 'white' }}>
             Book Another
           </button>
@@ -806,6 +821,18 @@ export default function BookCourt() {
             </p>
           </div>
           <button type="button" onClick={() => navigate('/my-bookings')} className="btn-text text-xs font-bold shrink-0" style={{ color: '#64748B' }}>Cancel edit</button>
+        </div>
+      )}
+
+      {/* Suspended or dues at or above the limit: no new booking (editing an existing one is still allowed) */}
+      {!editing && blockMessage && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-2xl text-sm"
+          style={{ background: '#FEF2F2', border: '2px solid #FCA5A5', color: '#991B1B' }}>
+          <AlertCircle size={18} className="shrink-0 mt-0.5" style={{ color: '#DC2626' }} />
+          <div>
+            <p className="font-black">Booking not allowed — {dues.suspended ? 'membership suspended' : 'payment dues'}</p>
+            <p className="text-xs mt-0.5">{blockMessage}</p>
+          </div>
         </div>
       )}
 
@@ -1070,7 +1097,7 @@ export default function BookCourt() {
               </span>
             </div>
           )}
-          <button onClick={goStep2} disabled={durationConflict}
+          <button ref={step1Next} onClick={goStep2} disabled={durationConflict}
             className="btn w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 tracking-wide"
             style={selectedDate && selectedTime && !durationConflict
               ? { background: NAVY, color: 'white', boxShadow: '0 4px 14px rgba(27,46,75,0.25)', cursor: 'pointer' }
@@ -1117,14 +1144,14 @@ export default function BookCourt() {
                   const dupOf = p.name.trim() && p.cm.trim() ? allPlayers.find(o => o.n < p.n && playerKey(o) === playerKey(p)) : null
                   return (
                     <div key={p.n} className="flex items-start gap-2.5">
-                      <span className="mt-5" title={p.you ? 'Player 1 (you)' : `Player ${p.n} (optional)`}><PlayerAvatar player={p} /></span>
+                      <span className="mt-5" title={p.you ? 'Player 1 (you)' : `Player ${p.n} (required)`}><PlayerAvatar player={p} /></span>
                       <div className="flex-1 min-w-0">
-                      {/* Label above each row: Player 1 is you; players 2–4 are optional */}
+                      {/* Label above each row: Player 1 is you; players 2–4 are required */}
                       <p className="flex items-center gap-1.5 mb-1 text-[10px] font-black uppercase tracking-wider" style={{ color: NAVY }}>
                         Player {p.n}
                         {p.you
                           ? <span className="px-1.5 py-px rounded" style={{ background: NAVY, color: 'white' }}>You</span>
-                          : <span className="px-1.5 py-px rounded normal-case tracking-normal font-bold" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D' }}>Optional</span>}
+                          : <span className="px-1.5 py-px rounded normal-case tracking-normal font-bold" style={{ background: '#FEE2E2', color: '#B91C1C', border: '1px solid #FCA5A5' }}>Required *</span>}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {p.you ? (
@@ -1142,11 +1169,11 @@ export default function BookCourt() {
                           </>
                         ) : (
                           <>
-                            <MemberCombo value={p.name} icon={nameIcon} exclude={others}
+                            <MemberCombo value={p.name} icon={nameIcon} exclude={others} under18={inKidsWindow}
                               placeholder="Select player"
                               onPick={m => pickExtra(p.n, m)}
                               style={dupOf ? { ...inputStyleWithIcon, borderColor: '#DC2626', background: '#FEF2F2' } : inputStyleWithIcon} />
-                            <MemberSearchInput field="cm" value={p.cm} icon={cmIcon} exclude={others}
+                            <MemberSearchInput field="cm" value={p.cm} icon={cmIcon} exclude={others} under18={inKidsWindow}
                               placeholder="or CM No."
                               onChange={v => updateExtra(p.n, 'cm', v)} onPick={m => pickExtra(p.n, m)}
                               style={dupOf ? { ...inputStyleWithIcon, borderColor: '#DC2626', background: '#FEF2F2' } : inputStyleWithIcon} />
@@ -1187,11 +1214,13 @@ export default function BookCourt() {
                   </div>
                 )
               })()}
-              <p className="text-xs mb-3" style={{ color: LGRAY }}>
-                Players 2–4 are optional — type a name or CM No. and pick the member from the list.
+              <p className="text-xs mb-3" style={{ color: inKidsWindow ? '#047857' : LGRAY, fontWeight: inKidsWindow ? 700 : 400 }}>
+                {inKidsWindow
+                  ? 'Under-18 free time: all 4 players must be under 18 — only under-18 members are shown in the list.'
+                  : 'All 4 players are required — type a name or CM No. and pick the member from the list.'}
               </p>
 
-              {/* Wide screens: contact phone | deposit slip | total, then bank name | reference no.
+              {/* Wide screens: contact phone | deposit slip | total
                   Highlighted blue panel so these details aren't missed */}
               <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3 mb-3 items-end p-3 sm:p-4 rounded-2xl"
                 style={{ background: '#EFF6FF', border: `2px solid #BFDBFE`, boxShadow: 'inset 4px 0 0 #3B82F6' }}>
@@ -1211,7 +1240,7 @@ export default function BookCourt() {
                   </div>
                 </div>
 
-                {/* Free booking (under-18 kids time): no slip, bank or reference no. */}
+                {/* Free booking (under-18 kids time): no deposit slip */}
                 {!isFree && (<>
                 {/* Deposit slip (required unless the booking is free) */}
                 <div className="min-w-0 md:col-span-2">
@@ -1244,51 +1273,6 @@ export default function BookCourt() {
                   <input ref={slipInput} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleSlip} className="hidden" />
                 </div>
 
-                {/* Bank name + reference no. of the deposit slip (required with a newly attached slip) */}
-                <div className="min-w-0 md:col-span-3 order-last">
-                  <label htmlFor="bank-name" style={{ ...keyLabel, color: refError && !bankName.trim() ? '#DC2626' : NAVY }}>
-                    Bank Name{refNeeded ? ' *' : ''} <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: LGRAY }}>
-                      ({refNeeded ? 'required' : 'of the slip'})
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <Landmark size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: KEY_BLUE }} />
-                    <select id="bank-name" value={otherBank ? 'other' : bankName}
-                      onChange={e => {
-                        const v = e.target.value
-                        setOtherBank(v === 'other'); setBankName(v === 'other' ? '' : v); setRefError('')
-                      }}
-                      style={{ ...keyInput, paddingLeft: '34px', cursor: 'pointer', color: bankName || otherBank ? NAVY : LGRAY,
-                        borderColor: refError && !bankName.trim() ? '#DC2626' : '#93C5FD', background: refError && !bankName.trim() ? '#FEF2F2' : keyInput.background }}>
-                      <option value="">Select bank</option>
-                      {BANK_GROUPS.map(g => (
-                        <optgroup key={g.label} label={g.label}>
-                          {g.banks.map(b => <option key={b} value={b}>{b}</option>)}
-                        </optgroup>
-                      ))}
-                      <option value="other">Other (type the name)</option>
-                    </select>
-                  </div>
-                  {otherBank && (
-                    <input type="text" value={bankName} maxLength={60} placeholder="Type the bank name" autoFocus autoComplete="off"
-                      onChange={e => { setBankName(e.target.value); setRefError('') }}
-                      className="mt-1.5" style={{ ...keyInput, borderColor: refError && !bankName.trim() ? '#DC2626' : '#93C5FD' }} />
-                  )}
-                </div>
-
-                <div className="min-w-0 md:col-span-3 order-last">
-                  <label htmlFor="ref-no" style={{ ...keyLabel, color: refError && bankName.trim() && !refNo.trim() ? '#DC2626' : NAVY }}>
-                    Reference No.{refNeeded ? ' *' : ''} <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: LGRAY }}>
-                      ({refNeeded ? 'required' : 'on the slip'})
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <FileText size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: KEY_BLUE }} />
-                    <input id="ref-no" type="text" value={refNo} maxLength={50} placeholder="e.g. TRX-123456" autoComplete="off"
-                      onChange={e => { setRefNo(e.target.value.toUpperCase()); setRefError('') }}
-                      style={{ ...keyInput, paddingLeft: '34px', ...(refError && bankName.trim() && !refNo.trim() ? { borderColor: '#DC2626', background: '#FEF2F2' } : {}) }} />
-                  </div>
-                </div>
                 </>)}
 
                 <div className="md:col-span-2 rounded-xl px-3 py-2 flex items-center justify-between gap-2"
@@ -1324,16 +1308,15 @@ export default function BookCourt() {
                   {!slip && (
                     <button type="button" onClick={() => {
                       setSlip({ path: oldSlip, name: editing ? 'Slip from this booking' : 'Slip from cancelled booking', fromCancelled: true, type: oldSlip.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/*' })
-                      setBankName(prefill?.bankName || ''); setOtherBank(!!prefill?.bankName && !ALL_BANKS.includes(prefill.bankName))
-                      setRefNo(prefill?.referenceNo || ''); setRefError('')
+                      setBankName(prefill?.bankName || ''); setRefNo(prefill?.referenceNo || '')
                     }}
                       className="btn-text font-bold shrink-0" style={{ color: NAVY }}>Use this slip</button>
                   )}
                 </div>
               )}
-              {(slipError || refError) && (
+              {slipError && (
                 <p className="text-xs -mt-1 mb-3 font-semibold flex items-center gap-1.5" style={{ color: '#DC2626' }}>
-                  <AlertCircle size={13} /> {slipError || refError}
+                  <AlertCircle size={13} /> {slipError}
                 </p>
               )}
 
@@ -1355,7 +1338,7 @@ export default function BookCourt() {
               </button>
             </>
           ) : (
-            <p className="text-sm pb-1" style={{ color: '#C8D3E0' }}>Up to 4 players</p>
+            <p className="text-sm pb-1" style={{ color: '#C8D3E0' }}>4 players required</p>
           )}
         </div>
       </div>
@@ -1424,21 +1407,8 @@ export default function BookCourt() {
                 })}
               </div>
 
-              {/* Contact | deposit slip | payment, then bank name | reference no. */}
+              {/* Contact | deposit slip | payment */}
               <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-2 mb-4">
-                {[
-                  ...(isFree ? [] : [ // free booking: no bank / reference no.
-                  { icon: <Landmark size={15} />, label: 'Bank Name', value: bankName.trim() },
-                  { icon: <FileText size={15} />, label: 'Reference No.', value: refNo.trim() }]),
-                ].map(t => (
-                  <div key={t.label} className="md:col-span-3 order-last flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: '#F5F7FA', border: `1px solid ${BORDER}` }}>
-                    <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'white', color: '#4A6FA5', border: `1px solid ${BORDER}` }}>{t.icon}</span>
-                    <span className="min-w-0">
-                      <span className="block text-[10px] font-bold uppercase tracking-wider" style={{ color: LGRAY }}>{t.label}{refNeeded ? ' *' : ''}</span>
-                      <span className="block text-sm font-bold truncate" style={{ color: t.value ? NAVY : LGRAY }} title={t.value}>{t.value || '—'}</span>
-                    </span>
-                  </div>
-                ))}
                 <div className="md:col-span-2 flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: '#F5F7FA', border: `1px solid ${BORDER}` }}>
                   <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'white', color: '#4A6FA5', border: `1px solid ${BORDER}` }}><Phone size={15} /></span>
                   <span className="min-w-0">
@@ -1482,7 +1452,7 @@ export default function BookCourt() {
                 className="btn w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 tracking-wide mb-2"
                 disabled={saving}
                 style={{ background: NAVY, color: 'white', boxShadow: '0 4px 14px rgba(27,46,75,0.3)', opacity: saving ? 0.7 : 1 }}>
-                <Check size={17} strokeWidth={3} /> {saving ? 'SAVING…' : prefill ? 'SAVE CHANGES' : 'CONFIRM BOOKING'}
+                <Check size={17} strokeWidth={3} /> {saving ? 'SAVING…' : prefill ? 'SAVE CHANGES' : amountDue > 0 ? 'PROCESSING BOOKING' : 'CONFIRM BOOKING'}
               </button>
               <button onClick={() => setStep(2)} className="btn-text w-full text-center text-sm" style={{ color: LGRAY }}>
                 ← Edit details

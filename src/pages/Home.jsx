@@ -424,7 +424,7 @@ export default function Home() {
           {/* Nav */}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             {/* Admin link only on phones (wider screens have the Admin button in the header) */}
-            {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ['/admin', 'Admin', true]].map(([to, label, phoneOnly]) => (
+            {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ...(sessionStorage.getItem('padel_admin') === 'true' ? [['/admin/dashboard', 'Admin', true]] : [])].map(([to, label, phoneOnly]) => (
               <Link key={to} to={to} className={`${phoneOnly ? 'sm:hidden ' : ''}text-sm font-medium whitespace-nowrap hover:text-white transition`}
                 style={{ color: MUTED }}>{label}</Link>
             ))}

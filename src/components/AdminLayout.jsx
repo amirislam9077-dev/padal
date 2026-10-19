@@ -1,6 +1,18 @@
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, CalendarDays, Grid2x2, LogOut, ChevronRight, Trophy, CalendarRange, BarChart3, House, BookOpenText, TrendingUp, Receipt, Users } from 'lucide-react'
-import { adminLogout, getCourts } from '../store'
+import { adminLogout, getCourts, adminCountsApi } from '../store'
+
+// Small count bubble on a sidebar link (hidden when 0)
+function CountBadge({ n, title, small }) {
+  if (!n) return null
+  return (
+    <span title={title} className={`inline-flex items-center justify-center rounded-full font-black ${small ? 'absolute -top-0.5 right-1 sm:static min-w-4 h-4 px-1 text-[9px]' : 'ml-auto min-w-5 h-5 px-1.5 text-[11px]'}`}
+      style={{ background: '#F97316', color: 'white', boxShadow: '0 0 0 2px rgba(249,115,22,0.25)' }}>
+      {n > 99 ? '99+' : n}
+    </span>
+  )
+}
 
 // Same dark colours as the public site header (Layout.jsx)
 const NAVY = '#070B18'
@@ -19,6 +31,21 @@ export default function AdminLayout() {
     { key: 'u18', label: 'U-18 Bookings' },
   ]
 
+  // Badge numbers: reloaded on every page change, after approvals / payment ticks ('admin-counts'), and every minute
+  const [counts, setCounts] = useState({ pendingMembers: 0, processingBookings: 0 })
+  useEffect(() => {
+    let alive = true
+    const load = () => adminCountsApi().then(r => { if (alive && !r.error) setCounts(r) })
+    load()
+    window.addEventListener('admin-counts', load)
+    const timer = setInterval(load, 60000)
+    return () => { alive = false; window.removeEventListener('admin-counts', load); clearInterval(timer) }
+  }, [pathname])
+  const badgeFor = to =>
+    to === '/admin/bookings' ? { n: counts.processingBookings, title: `${counts.processingBookings} booking(s) waiting for payment confirmation` }
+      : to === '/admin/members' ? { n: counts.pendingMembers, title: `${counts.pendingMembers} sign-up(s) waiting for approval` }
+        : null
+
   function logout() {
     adminLogout()
     navigate('/admin')
@@ -36,7 +63,7 @@ export default function AdminLayout() {
     { to: '/admin/vouchers', label: 'Vouchers', icon: Receipt },
     { to: '/admin/profit-loss', label: 'Profit & Loss', short: 'P&L', icon: TrendingUp },
     // Back to the public booking site
-    { to: '/', label: 'Booking Home Page', short: 'Home', icon: House, divider: true },
+    { to: '/book', label: 'Booking Home Page', short: 'Home', icon: House, divider: true },
   ]
 
   return (
@@ -65,7 +92,8 @@ export default function AdminLayout() {
                   : { color: 'rgba(255,255,255,0.5)' }}>
                 <Icon size={16} />
                 {label}
-                {pathname === to && <ChevronRight size={13} className="ml-auto" />}
+                {badgeFor(to) && <CountBadge {...badgeFor(to)} />}
+                {pathname === to && <ChevronRight size={13} className={badgeFor(to)?.n ? '' : 'ml-auto'} />}
               </Link>
               {/* Booking views under "All Bookings" — only while on that page, so the sidebar fits the screen */}
               {to === '/admin/bookings' && pathname === to && (
@@ -107,7 +135,7 @@ export default function AdminLayout() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <Link to="/" title="Booking Home Page"
+              <Link to="/book" title="Booking Home Page"
                 className="btn-ghost flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
                 style={{ color: '#8FA9C8', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)' }}>
                 <House size={13} /> Home
@@ -123,11 +151,12 @@ export default function AdminLayout() {
           <nav className="admin-tabs grid grid-cols-5 sm:flex sm:overflow-x-auto" style={{ background: NAVY2, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             {navLinks.filter(l => !l.divider).map(({ to, label, short, icon: Icon }) => ( // Home is a button beside Logout here
               <Link key={to} to={to}
-                className="nav-link flex-1 shrink-0 min-w-[64px] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap"
+                className="nav-link relative flex-1 shrink-0 min-w-[64px] flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap"
                 style={pathname === to
                   ? { borderColor: 'white', color: 'white' }
                   : { borderColor: 'transparent', color: 'rgba(255,255,255,0.45)' }}>
                 <Icon size={16} />{short || label}
+                {badgeFor(to) && <CountBadge {...badgeFor(to)} small />}
               </Link>
             ))}
           </nav>

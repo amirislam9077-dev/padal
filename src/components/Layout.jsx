@@ -17,7 +17,11 @@ export function OtLogo({ size = 40 }) {
   )
 }
 
+// Admin links show only while the admin is logged in, and open the admin panel directly
+const isAdminLoggedIn = () => sessionStorage.getItem('padel_admin') === 'true'
+
 function SiteFooter() {
+  const isAdmin = isAdminLoggedIn()
   return (
     <footer style={{ background: '#05070F', borderTop: `1px solid ${OT_LINE}` }}>
       {/* Main row */}
@@ -36,7 +40,7 @@ function SiteFooter() {
         {/* Nav links */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           {/* Admin link only on phones (wider screens have the Admin button in the header) */}
-          {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ['/admin', 'Admin', true]].map(([to, label, phoneOnly]) => (
+          {[['/', 'Home'], ['/book', 'Padel Booking'], ['/my-bookings', 'My Bookings'], ['/complaints', 'Complaints'], ...(isAdmin ? [['/admin/dashboard', 'Admin', true]] : [])].map(([to, label, phoneOnly]) => (
             <Link key={to} to={to}
               className={`${phoneOnly ? 'sm:hidden ' : ''}text-sm font-medium whitespace-nowrap transition hover:text-white`}
               style={{ color: '#9AA3B5' }}>
@@ -251,6 +255,7 @@ export default function Layout() {
   // Pages on the dark site background (the rest use the light grey one)
   const darkPage = isHome || pathname === '/admin'
   const user = getCurrentUser()
+  const isAdmin = isAdminLoggedIn()
   const [, refresh] = useState(0) // re-read the session after the picture changes
 
   function handleLogout() {
@@ -312,11 +317,13 @@ export default function Layout() {
                 </Link>
               </>
             )}
-            <Link to="/admin"
-              className="ot-outline hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.06)', color: '#C9CFDB', border: `1px solid ${OT_LINE}` }}>
-              <Shield size={12} /> Admin
-            </Link>
+            {isAdmin && (
+              <Link to="/admin/dashboard"
+                className="ot-outline hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.06)', color: '#C9CFDB', border: `1px solid ${OT_LINE}` }}>
+                <Shield size={12} /> Admin
+              </Link>
+            )}
             {/* Logged in: profile picture at the far right, opens the profile menu */}
             {/* key={pathname}: menu closes after navigating to another page */}
             {user && <ProfileMenu key={pathname} user={user} onLogout={handleLogout} onUserChange={() => refresh(n => n + 1)} />}
@@ -326,7 +333,7 @@ export default function Layout() {
         {/* Phone / tablet tab bar */}
         <nav className="lg:hidden flex border-t" style={{ borderColor: OT_LINE, background: '#0B0F1C' }}>
           {/* Admin tab only on phones — the header has no room for the Admin button there */}
-          {[...navLinks, { to: '/admin', label: 'Admin', short: 'Admin', icon: Shield, phoneOnly: true }].map(({ to, label, short, icon: Icon, phoneHidden, phoneOnly }) => (
+          {[...navLinks, ...(isAdmin ? [{ to: '/admin/dashboard', label: 'Admin', short: 'Admin', icon: Shield, phoneOnly: true }] : [])].map(({ to, label, short, icon: Icon, phoneHidden, phoneOnly }) => (
             <Link key={to} to={to} title={label}
               className={`nav-link flex-1 min-w-0 ${phoneHidden ? "hidden sm:flex" : phoneOnly ? "flex sm:hidden" : "flex"} flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 py-2.5 sm:py-3 text-[11px] sm:text-sm font-semibold border-b-2 whitespace-nowrap overflow-hidden`}
               style={pathname === to

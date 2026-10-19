@@ -290,11 +290,21 @@ export const adminSaveEventApi = ev => ev.id
 export const adminDeleteEventApi = id => apiRequest(`/api/admin/events/${id}`, { method: 'DELETE', headers: adminHeaders() })
 
 export const adminSlotsApi = () => apiRequest('/api/admin/slots', { headers: adminHeaders() })
-export const adminSetStatusApi = (id, status) => apiRequest(`/api/admin/slots/${id}/status`, { method: 'POST', body: { status }, headers: adminHeaders() })
-export const adminSetPaymentApi = (id, received) => apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() })
+// Sidebar badges: { pendingMembers, processingBookings }. Changes that affect them fire 'admin-counts'
+// so the sidebar reloads the numbers straight away.
+export const adminCountsApi = () => apiRequest('/api/admin/counts', { headers: adminHeaders() })
+const refreshCounts = p => p.then(r => { window.dispatchEvent(new Event('admin-counts')); return r })
+export const adminSetStatusApi = (id, status) => refreshCounts(apiRequest(`/api/admin/slots/${id}/status`, { method: 'POST', body: { status }, headers: adminHeaders() }))
+export const adminSetPaymentApi = (id, received) => refreshCounts(apiRequest(`/api/admin/slots/${id}/payment`, { method: 'POST', body: { received }, headers: adminHeaders() }))
 export const adminMembersApi = () => apiRequest('/api/admin/members', { headers: adminHeaders() })
-export const adminUpdateMemberApi = (id, m) => apiRequest(`/api/admin/members/${id}`, { method: 'PUT', body: m, headers: adminHeaders() })
-export const adminDeleteMemberApi = id => apiRequest(`/api/admin/members/${id}`, { method: 'DELETE', headers: adminHeaders() })
+export const adminUpdateMemberApi = (id, m, password) => apiRequest(`/api/admin/members/${id}`, { method: 'PUT', body: m, headers: withPassword(password) })
+export const adminDeleteMemberApi = (id, password) => refreshCounts(apiRequest(`/api/admin/members/${id}`, { method: 'DELETE', headers: withPassword(password) }))
+// Member dues (Rs.); above Rs. 20,000 the member can't make new bookings
+export const adminMemberDuesApi = (id, dues) => apiRequest(`/api/admin/members/${id}/dues`, { method: 'PUT', body: { dues }, headers: adminHeaders() })
+// Suspend / un-suspend a member (a suspended member can't book)
+export const adminMemberSuspendApi = (id, suspended) => apiRequest(`/api/admin/members/${id}/suspend`, { method: 'PUT', body: { suspended }, headers: adminHeaders() })
+// Approve, reject or un-approve a sign-up ('approved' | 'rejected' | 'pending'); approve / reject email the member
+export const adminMemberStatusApi = (id, status) => refreshCounts(apiRequest(`/api/admin/members/${id}/status`, { method: 'POST', body: { status }, headers: adminHeaders() }))
 export const adminVouchersApi = () => apiRequest('/api/admin/vouchers', { headers: adminHeaders() })
 export const adminSaveVoucherApi = v => v.id
   ? apiRequest(`/api/admin/vouchers/${v.id}`, { method: 'PUT', body: v, headers: adminHeaders() })
@@ -304,8 +314,11 @@ export const adminVoucherOptionsApi = () => apiRequest('/api/admin/voucher-optio
 export const adminAddVoucherOptionApi = (kind, name) => apiRequest('/api/admin/voucher-options', { method: 'POST', body: { kind, name }, headers: adminHeaders() })
 export const adminPnlApi = (from, to) => apiRequest(`/api/admin/pnl?from=${from}&to=${to}`, { headers: adminHeaders() })
 export const adminLedgerApi = () => apiRequest('/api/admin/ledger', { headers: adminHeaders() })
-export const adminUpdateSlotApi = (id, booking) => apiRequest(`/api/admin/slots/${id}`, { method: 'PUT', body: booking, headers: adminHeaders() })
-export const adminDeleteSlotApi = id => apiRequest(`/api/admin/slots/${id}`, { method: 'DELETE', headers: adminHeaders() })
+// Edit / delete need the admin password again (asked by askAdminPassword)
+const withPassword = password => ({ ...adminHeaders(), 'x-admin-password': password || '' })
+export const adminVerifyPasswordApi = password => apiRequest('/api/admin/verify-password', { method: 'POST', body: { password }, headers: adminHeaders() })
+export const adminUpdateSlotApi = (id, booking, password) => refreshCounts(apiRequest(`/api/admin/slots/${id}`, { method: 'PUT', body: booking, headers: withPassword(password) }))
+export const adminDeleteSlotApi = (id, password) => refreshCounts(apiRequest(`/api/admin/slots/${id}`, { method: 'DELETE', headers: withPassword(password) }))
 
 // slotId: the saved booking — the server picks the email (in process / confirmed) from its payment status
 export async function sendBookingEmailsApi(booking, slotId) {
@@ -320,11 +333,12 @@ export async function uploadSlipApi(file, name) {
   return postJson('/api/deposit-slip', { id: user.id, token: user.token, file, name })
 }
 
-export async function searchMembersApi(q, field) {
+// under18: only members under 18 (for the under-18 free time)
+export async function searchMembersApi(q, field, under18 = false) {
   const user = getCurrentUser()
   if (!user?.token) return { members: [], relogin: true }
   try {
-    const res = await fetch(`${BACKEND_URL}/api/members/search?field=${field}&q=${encodeURIComponent(q)}`, {
+    const res = await fetch(`${BACKEND_URL}/api/members/search?field=${field}&q=${encodeURIComponent(q)}${under18 ? '&u18=1' : ''}`, {
       headers: { 'x-user-id': user.id, 'x-user-token': user.token },
     })
     return await res.json()
