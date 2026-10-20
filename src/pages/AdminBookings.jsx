@@ -239,9 +239,14 @@ export default function AdminBookings() {
                 {pageRows.map(b => {
                   const confirmed = b.status === 'confirmed'
                   const cell = 'px-3 py-2 align-middle'
+                  // Date (or today's time slot) already over
+                  const past = b.date < todayKey() || (b.date === todayKey() && b.endHour <= new Date().getHours())
+                  const processing = confirmed && !b.paymentReceived
                   return (
-                    // Processing (payment not yet received) rows are highlighted
-                    <tr key={b.id} className={confirmed && !b.paymentReceived ? 'row-processing' : ''} style={{ borderBottom: '1px solid #EEF2F7', ...(confirmed && !b.paymentReceived ? { background: '#FFE8C2', boxShadow: 'inset 6px 0 0 #EA580C, inset 0 1px 0 #FDBA74, inset 0 -1px 0 #FDBA74' } : {}) }}>
+                    // Processing (payment not yet received) rows are orange; past bookings are grey
+                    <tr key={b.id} className={processing ? 'row-processing' : ''} style={{ borderBottom: '1px solid #EEF2F7',
+                      ...(processing ? { background: '#FFE8C2', boxShadow: 'inset 6px 0 0 #EA580C, inset 0 1px 0 #FDBA74, inset 0 -1px 0 #FDBA74' }
+                        : past ? { background: '#E9ECF1', boxShadow: 'inset 6px 0 0 #9CA3AF' } : {}) }}>
                       <td className={`${cell} whitespace-nowrap text-xs font-bold`} style={{ color: NAVY, fontFamily: 'Consolas, monospace' }}>{b.slotRef}</td>
                       {/* All 4 players: Team 1 vs Team 2 (CM No. on hover), booker's phone below */}
                       <td className={cell}>
@@ -264,7 +269,10 @@ export default function AdminBookings() {
                       </td>
                       {/* Date on top; time + hours below */}
                       <td className={`${cell} whitespace-nowrap`}>
-                        <p className="font-semibold leading-tight" style={{ color: NAVY }}>{format(new Date(b.date + 'T00:00'), 'EEE d MMM yyyy')}</p>
+                        <p className="font-semibold leading-tight" style={{ color: past ? '#6B7280' : NAVY }}>
+                          {format(new Date(b.date + 'T00:00'), 'EEE d MMM yyyy')}
+                          {past && <span className="ml-1.5 align-middle text-[9px] font-black px-1.5 py-px rounded" style={{ background: '#6B7280', color: 'white' }}>DATE PASSED</span>}
+                        </p>
                         <p className="text-xs" style={{ color: '#4B5563' }}>
                           {formatSlotRange(b.startHour, b.endHour)} <span style={{ color: LGRAY }}>· {b.endHour - b.startHour}h</span>
                         </p>
